@@ -166,6 +166,7 @@
               <label style="margin:0">Item details (optional) &mdash; log what you bought to track prices</label>
               <span>
                 <button type="button" class="btn btn-ghost btn-sm" onclick="importItemsFile()">&#11014;&#65039; Import list (CSV/Excel)</button>
+                <button type="button" class="btn btn-ghost btn-sm" onclick="downloadSample('items')" title="Download an example grocery list showing the expected columns">&#128196; Sample</button>
                 <button type="button" class="btn btn-ghost btn-sm" onclick="addItemRow()">&#10133; Add item</button>
               </span>
             </div>
@@ -191,7 +192,10 @@
 
       <div class="card">
         <h2><span>Expenses <span id="listCount" style="font-size:12px;color:var(--muted);font-weight:600"></span></span>
-          <button class="btn btn-ghost btn-sm" onclick="importStatementFile()">&#11014;&#65039; Import bank statement</button>
+          <span>
+            <button class="btn btn-ghost btn-sm" onclick="importStatementFile()">&#11014;&#65039; Import bank statement</button>
+            <button class="btn btn-ghost btn-sm" onclick="downloadSample('statement')" title="Download an example statement showing the expected columns">&#128196; Sample</button>
+          </span>
         </h2>
         <div class="filters">
           <input type="text" id="fltSearch" placeholder="&#128269; Search notes..." oninput="render()">
@@ -224,6 +228,7 @@
       <span>
         <button class="btn btn-primary btn-sm" id="paySelBtn" style="display:none" onclick="openBatchPay()"></button>
         <button class="btn btn-ghost btn-sm" onclick="importPayeesFile()">&#11014;&#65039; Import from Excel/CSV</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadSample('payees')" title="Download an example file showing the expected columns">&#128196; Sample</button>
         <button class="btn btn-ghost btn-sm" onclick="exportPayeesCSV()">&#11015;&#65039; Export for payment</button>
         <button class="btn btn-primary btn-sm" onclick="openPayeeModal()">&#10133; Add Payee</button>
       </span>
@@ -937,7 +942,7 @@ $('prBank').addEventListener('change', ()=>{
 });
 $('prPhoto').addEventListener('change', e=>{
   const f = e.target.files[0]; if(!f) return;
-  if(!/^image\//.test(f.type||'')){ toast('That file is not an image — pick a JPG or PNG photo'); e.target.value=''; return; }
+  if(f.type && !/^image\//.test(f.type)){ toast('That file is not an image — pick a JPG or PNG photo'); e.target.value=''; return; }
   toast('Reading photo…');
   const r = new FileReader();
   r.onerror = ()=>{ toast('⚠️ Could not read that file — try a different photo'); };
@@ -1696,6 +1701,28 @@ function parseCSV(text){
 function importPayeesFile(){ startFilePick('payees'); }
 function importItemsFile(){ startFilePick('items'); }
 function importStatementFile(){ startFilePick('statement'); }
+function downloadSample(kind){
+  const samples = {
+    payees: 'Full Name,Bank,Bank Code,Account Number,Monthly Amount,Funds Expected\r\n'
+          + 'Ada Obi,GTBank,000013,0123456789,60000,House Rent\r\n'
+          + 'Emeka Eze,UBA,000004,2011223344,45000,Staff Salary\r\n',
+    statement: 'Date,Narration,Debit,Credit\r\n'
+          + '01/07/2026,POS PURCHASE SHOPRITE,15250.00,\r\n'
+          + '02/07/2026,TRANSFER TO JOHN,60000,\r\n'
+          + '03/07/2026,SALARY CREDIT (money in - will be skipped),,250000\r\n',
+    items: 'S/N,Item Description,Qty,Unit Price,Total\r\n'
+          + '1,2 crates of eggs,2,6500,13000\r\n'
+          + '2,Rice 10kg bag,1,24000,24000\r\n'
+          + '3,Groundnut oil 2L,3,4200,12600\r\n'
+  };
+  const names = {payees:'sample-payees.csv', statement:'sample-bank-statement.csv', items:'sample-grocery-list.csv'};
+  const blob = new Blob(['﻿'+samples[kind]], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = names[kind];
+  a.click(); URL.revokeObjectURL(a.href);
+  toast('Sample downloaded — your file can use any column names; you match them during import');
+}
 function startFilePick(target){
   $('importFile').dataset.target = target;
   $('importFile').value = '';
