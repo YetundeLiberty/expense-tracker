@@ -105,9 +105,9 @@
 <div class="wrap">
   <header>
     <div class="brand">
-      <div class="mark" id="brandMark" onclick="openProfile()" style="cursor:pointer;overflow:hidden" title="Your profile">&#128181;</div>
+      <div class="mark" id="brandMark" onclick="openProfile()" style="cursor:pointer;overflow:hidden" title="Your profile — click to edit">&#128181;</div>
       <div>
-        <h1>Personal Expense Tracker</h1>
+        <h1 id="brandTitle">Personal Expense Tracker</h1>
         <p id="brandSub">Know where your money goes</p>
       </div>
     </div>
@@ -117,9 +117,10 @@
         <span class="label" id="monthLabel"></span>
         <button onclick="shiftMonth(1)" title="Next month">&#9654;</button>
       </div>
-      <button class="btn btn-ghost" onclick="openProfile()">&#128100; Profile</button>
+      <button class="btn btn-ghost" onclick="openSavings()">&#128022; Savings</button>
       <button class="btn btn-ghost" onclick="openPrices()">&#128200; Prices</button>
       <button class="btn btn-ghost" onclick="openWallet()">&#128176; Wallet</button>
+      <button class="btn btn-ghost" onclick="openInsights()">&#128202; Report &amp; Analysis</button>
       <button class="btn btn-ghost" onclick="openSettings()">&#9881;&#65039; Settings</button>
       <button class="btn btn-ghost" onclick="exportCSV()">&#11015;&#65039; Export CSV</button>
     </div>
@@ -257,6 +258,14 @@
 <div class="modal-bg" id="settingsModal">
   <div class="modal">
     <h3>&#9881;&#65039; Settings</h3>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)">
+      <div id="setProfAvatar" style="width:40px;height:40px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:var(--accent);overflow:hidden;flex-shrink:0"></div>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:13.5px" id="setProfName">Not set up yet</div>
+        <div style="font-size:12px;color:var(--muted)">Account owner profile</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="openProfile()">&#9998; Edit</button>
+    </div>
     <div class="form-grid">
       <div>
         <label>Currency symbol</label>
@@ -284,6 +293,51 @@
     <div class="actions">
       <button class="btn btn-danger" onclick="clearAll()">Clear all data</button>
       <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Savings modal -->
+<div class="modal-bg" id="savingsModal">
+  <div class="modal" style="max-width:460px">
+    <h3>&#128022; Savings</h3>
+    <div id="savSummary"></div>
+    <div class="form-grid" style="margin-top:14px">
+      <div>
+        <label>Daily auto-save amount</label>
+        <input type="number" id="savDaily" min="0" step="0.01" placeholder="e.g. 5000">
+      </div>
+      <div style="display:flex;align-items:flex-end;padding-bottom:6px">
+        <label style="display:flex;gap:8px;align-items:center;margin:0;font-size:13.5px;color:var(--ink);cursor:pointer">
+          <input type="checkbox" id="savEnabled" style="width:auto"> Auto-save ON
+        </label>
+      </div>
+      <div class="full" style="text-align:right">
+        <button class="btn btn-primary btn-sm" onclick="saveSavingsSettings()">&#128190; Save settings</button>
+      </div>
+    </div>
+    <p style="font-size:11.5px;color:var(--muted);margin-top:4px">Each day, the amount moves from your wallet into savings automatically (catching up when you open the app). Days when the wallet is too low are skipped.</p>
+    <h3 style="margin-top:16px;font-size:14px">Move money</h3>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="number" id="savMoveAmt" min="0.01" step="0.01" placeholder="Amount" style="flex:1;min-width:110px">
+      <button class="btn btn-ghost btn-sm" onclick="savDeposit()">&#10133; Add from wallet</button>
+      <button class="btn btn-ghost btn-sm" onclick="savWithdraw()">&#8630; Withdraw to wallet</button>
+    </div>
+    <h3 style="margin-top:16px;font-size:14px">History</h3>
+    <div id="savList" style="max-height:200px;overflow:auto"></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal('savingsModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Insights modal -->
+<div class="modal-bg" id="insightsModal">
+  <div class="modal" style="max-width:580px">
+    <h3 id="insTitle">&#128202; Monthly Insights</h3>
+    <div id="insBody" style="max-height:70vh;overflow:auto"></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal('insightsModal')">Close</button>
     </div>
   </div>
 </div>
@@ -679,6 +733,7 @@ function defaults(){
     grocs: [],
     payees: [],
     profile: { name:'', username:'', phone:'', photo:null, bank:'', bankCode:'', acct:'' },
+    savings: { daily: 0, enabled: false, lastRun: null, entries: [], skippedTotal: 0 },
     wallet: { fundings: [] },
     methods: [
       'Cash',
@@ -721,6 +776,7 @@ function load(){
         });
         d.grocs = d.grocs || [];
         d.profile = d.profile || { name:'', username:'', phone:'', photo:null, bank:'', bankCode:'', acct:'' };
+        d.savings = d.savings || { daily: 0, enabled: false, lastRun: null, entries: [], skippedTotal: 0 };
         if(!d.settings.bankCodesV1){
           (d.payees||[]).forEach(p=>{
             const bk = findBank(p.bank);
@@ -881,16 +937,23 @@ $('prBank').addEventListener('change', ()=>{
 });
 $('prPhoto').addEventListener('change', e=>{
   const f = e.target.files[0]; if(!f) return;
+  if(!/^image\//.test(f.type||'')){ toast('That file is not an image — pick a JPG or PNG photo'); e.target.value=''; return; }
+  toast('Reading photo…');
   const r = new FileReader();
+  r.onerror = ()=>{ toast('⚠️ Could not read that file — try a different photo'); };
   r.onload = ()=>{
     const img = new Image();
+    img.onerror = ()=>{ toast('⚠️ Could not open that image — try a JPG or PNG instead'); };
     img.onload = ()=>{
-      const s = 128, cv = document.createElement('canvas');
-      cv.width = s; cv.height = s;
-      const m = Math.min(img.width, img.height);
-      cv.getContext('2d').drawImage(img, (img.width-m)/2, (img.height-m)/2, m, m, 0, 0, s, s);
-      profDraftPhoto = cv.toDataURL('image/jpeg', 0.85);
-      renderProfPreview();
+      try{
+        const s = 128, cv = document.createElement('canvas');
+        cv.width = s; cv.height = s;
+        const m = Math.min(img.width, img.height);
+        cv.getContext('2d').drawImage(img, (img.width-m)/2, (img.height-m)/2, m, m, 0, 0, s, s);
+        profDraftPhoto = cv.toDataURL('image/jpeg', 0.85);
+        renderProfPreview();
+        toast('Photo ready ✓ — remember to Save Profile');
+      }catch(err){ toast('⚠️ Could not process that image — try another photo'); }
     };
     img.src = r.result;
   };
@@ -932,6 +995,12 @@ function saveProfile(){
     acct: $('prAcct').value.trim()
   };
   persist(); closeModal('profileModal'); renderProfileHeader();
+  if($('settingsModal').classList.contains('open')){
+    $('setProfAvatar').innerHTML = state.profile.photo
+      ? `<img src="${state.profile.photo}" style="width:100%;height:100%;object-fit:cover">`
+      : (initialsOf(state.profile.name) || '&#128100;');
+    $('setProfName').textContent = state.profile.name || 'Not set up yet';
+  }
   toast(state.profile.name ? 'Profile saved — welcome, '+state.profile.name.split(' ')[0]+'!' : 'Profile saved');
 }
 function renderProfileHeader(){
@@ -939,9 +1008,232 @@ function renderProfileHeader(){
   $('brandMark').innerHTML = p.photo
     ? `<img src="${p.photo}" style="width:100%;height:100%;object-fit:cover">`
     : (initialsOf(p.name) || '&#128181;');
-  $('brandSub').textContent = p.name
-    ? 'Welcome back, '+p.name.split(' ')[0]+(p.username?' (@'+p.username+')':'')
-    : 'Know where your money goes';
+  if(p.name){
+    $('brandTitle').textContent = p.name;
+    const acct = [p.bank, p.acct].filter(Boolean).join(' ');
+    $('brandSub').textContent = [p.phone, acct].filter(Boolean).join(' · ') || 'Personal Expense Tracker';
+  }else{
+    $('brandTitle').textContent = 'Personal Expense Tracker';
+    $('brandSub').textContent = 'Know where your money goes';
+  }
+}
+
+// ---------- savings (daily auto-save from wallet) ----------
+function dToStr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function processAutoSavings(){
+  const s = state.savings;
+  if(!s.enabled || !(s.daily > 0)){ s.lastRun = todayStr(); return; }
+  if(!s.lastRun) s.lastRun = todayStr();
+  let changed = false, skipped = 0;
+  const d = new Date(s.lastRun+'T00:00:00');
+  const today = new Date(todayStr()+'T00:00:00');
+  while(d < today){
+    d.setDate(d.getDate()+1);
+    const ds = dToStr(d);
+    if(walletBalance() >= s.daily){
+      s.entries.push({id:'sv'+Date.now()+Math.random().toString(36).slice(2,6), date: ds, amount: s.daily, type:'auto'});
+      changed = true;
+    }else{
+      skipped++;
+      s.skippedTotal = (s.skippedTotal||0) + 1;
+    }
+    s.lastRun = ds;
+  }
+  if(changed || skipped) persist();
+  if(skipped) toast(skipped+' auto-save day'+(skipped===1?'':'s')+' skipped — wallet was too low');
+}
+function openSavings(){
+  $('savDaily').value = state.savings.daily || '';
+  $('savEnabled').checked = !!state.savings.enabled;
+  $('savMoveAmt').value = '';
+  renderSavings();
+  $('savingsModal').classList.add('open');
+}
+function renderSavings(){
+  const s = state.savings;
+  const bal = savingsBalance();
+  const mk = monthKey(new Date());
+  const thisMonth = (s.entries||[]).filter(e=>keyOfDateStr(e.date)===mk)
+    .reduce((sum,e)=> sum + (e.type==='withdraw' ? -e.amount : e.amount), 0);
+  $('savSummary').innerHTML = `
+    <div style="background:#e7f6ec;border-radius:12px;padding:14px 16px">
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Total saved</div>
+      <div style="font-size:26px;font-weight:800;color:var(--ok)">${fmt(bal)}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">${fmt(thisMonth)} added this month${s.skippedTotal?' &middot; '+s.skippedTotal+' day'+(s.skippedTotal===1?'':'s')+' skipped (low wallet)':''}</div>
+    </div>`;
+  const list = [...(s.entries||[])].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,60);
+  $('savList').innerHTML = list.length ? list.map(e=>`
+    <div class="cat-row">
+      <div style="flex:1">
+        <div style="font-weight:600;font-size:13.5px;color:${e.type==='withdraw'?'var(--danger)':'var(--ok)'}">${e.type==='withdraw'?'−':'+'}${fmt(e.amount)}</div>
+        <div style="font-size:12px;color:var(--muted)">${new Date(e.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})} &middot; ${e.type==='auto'?'Daily auto-save':e.type==='deposit'?'Added from wallet':'Withdrawn to wallet'}</div>
+      </div>
+    </div>`).join('') : '<div class="empty" style="padding:16px">Nothing saved yet — switch on auto-save above.</div>';
+}
+function saveSavingsSettings(){
+  const s = state.savings;
+  const wasEnabled = s.enabled;
+  s.daily = parseFloat($('savDaily').value) || 0;
+  s.enabled = $('savEnabled').checked && s.daily > 0;
+  if($('savEnabled').checked && !(s.daily > 0)){ toast('Enter a daily amount first'); $('savEnabled').checked=false; return; }
+  if(s.enabled && !wasEnabled){
+    // start today: set lastRun to yesterday so today's save happens immediately
+    const y = new Date(todayStr()+'T00:00:00'); y.setDate(y.getDate()-1);
+    s.lastRun = dToStr(y);
+  }
+  persist();
+  processAutoSavings();
+  renderSavings(); render();
+  toast(s.enabled ? 'Auto-save ON — '+fmt(s.daily)+' daily' : 'Auto-save is off');
+}
+function savDeposit(){
+  const amt = parseFloat($('savMoveAmt').value);
+  if(!amt || amt<=0){ toast('Enter a valid amount'); return; }
+  if(walletBalance() < amt && !confirm('This is more than your wallet balance — the wallet will go negative. Continue?')) return;
+  state.savings.entries.push({id:'sv'+Date.now()+Math.random().toString(36).slice(2,6), date: todayStr(), amount: amt, type:'deposit'});
+  persist(); $('savMoveAmt').value=''; renderSavings(); render();
+  toast(fmt(amt)+' moved into savings');
+}
+function savWithdraw(){
+  const amt = parseFloat($('savMoveAmt').value);
+  if(!amt || amt<=0){ toast('Enter a valid amount'); return; }
+  if(amt > savingsBalance()){ toast('You only have '+fmt(savingsBalance())+' in savings'); return; }
+  state.savings.entries.push({id:'sv'+Date.now()+Math.random().toString(36).slice(2,6), date: todayStr(), amount: amt, type:'withdraw'});
+  persist(); $('savMoveAmt').value=''; renderSavings(); render();
+  toast(fmt(amt)+' withdrawn back to wallet');
+}
+
+// ---------- monthly insights ----------
+function openInsights(){
+  const mk = monthKey(viewMonth);
+  const nowMk = monthKey(new Date());
+  const monthName = viewMonth.toLocaleDateString(undefined,{month:'long',year:'numeric'});
+  const complete = mk < nowMk;
+  const exps = state.expenses.filter(e=>keyOfDateStr(e.date)===mk);
+  const pm = new Date(viewMonth); pm.setMonth(pm.getMonth()-1);
+  const pmk = monthKey(pm);
+  const pmName = pm.toLocaleDateString(undefined,{month:'long'});
+  const prevExps = state.expenses.filter(e=>keyOfDateStr(e.date)===pmk);
+  const total = exps.reduce((s,e)=>s+e.amount,0);
+  const prevTotal = prevExps.reduce((s,e)=>s+e.amount,0);
+  const daysInMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth()+1, 0).getDate();
+  const elapsed = mk===nowMk ? new Date().getDate() : daysInMonth;
+  const avg = elapsed ? total/elapsed : 0;
+  const projection = (mk===nowMk && elapsed < daysInMonth) ? avg*daysInMonth : null;
+
+  $('insTitle').innerHTML = '&#128202; '+monthName+' '+(complete
+    ? '<span class="chip" style="background:#e7f6ec;color:var(--ok)">Final report</span>'
+    : mk===nowMk ? '<span class="chip" style="background:var(--accent-soft);color:var(--accent)">Month in progress</span>'
+    : '<span class="chip" style="background:#eef1f6;color:var(--muted)">No data yet</span>');
+
+  if(!exps.length){
+    $('insBody').innerHTML = '<div class="empty"><div class="big">&#128202;</div>No expenses recorded for '+monthName+' yet.</div>';
+    $('insightsModal').classList.add('open');
+    return;
+  }
+
+  // group by category (custom "Other" labels stand alone)
+  const grp = list => {
+    const g = {};
+    list.forEach(e=>{
+      const key = (e.cat==='other' && e.catLabel) ? 'lbl:'+e.catLabel.trim().toLowerCase() : e.cat;
+      const name = (e.cat==='other' && e.catLabel) ? e.catLabel.trim() : catById(e.cat).name;
+      (g[key] = g[key] || {name, total:0}).total += e.amount;
+    });
+    return g;
+  };
+  const cur = grp(exps), prev = grp(prevExps);
+  const rows = Object.keys(cur).sort((a,b)=>cur[b].total-cur[a].total);
+
+  // biggest single expenses
+  const top3 = [...exps].sort((a,b)=>b.amount-a.amount).slice(0,3);
+
+  // grocery price movers this month
+  const movers = [];
+  exps.forEach(e=>(e.items||[]).forEach(it=>{
+    const desc = String(it.desc||'').trim(); if(!desc) return;
+    const q = parseNum(it.qty), unit = parseNum(it.unit) || (q>0 ? parseNum(it.total)/q : 0);
+    if(!(unit>0)) return;
+    let prevUnit = 0, prevDate = '';
+    state.expenses.forEach(pe=>{
+      if(pe.date >= e.date) return;
+      (pe.items||[]).forEach(pit=>{
+        if(String(pit.desc||'').trim().toLowerCase()!==desc.toLowerCase()) return;
+        if(pe.date > prevDate){
+          const pq = parseNum(pit.qty), pu = parseNum(pit.unit) || (pq>0 ? parseNum(pit.total)/pq : 0);
+          if(pu>0){ prevUnit = pu; prevDate = pe.date; }
+        }
+      });
+    });
+    if(prevUnit>0 && Math.abs(unit-prevUnit)/prevUnit >= 0.02) movers.push({desc, prevUnit, unit, ch:(unit-prevUnit)/prevUnit*100});
+  }));
+  movers.sort((a,b)=>Math.abs(b.ch)-Math.abs(a.ch));
+
+  const payeeTotal = exps.filter(e=>e.payeeId).reduce((s,e)=>s+e.amount,0);
+  const savedThisMonth = (state.savings.entries||[]).filter(e=>keyOfDateStr(e.date)===mk)
+    .reduce((s,e)=> s + (e.type==='withdraw' ? -e.amount : e.amount), 0);
+  const budget = state.settings.budget || 0;
+
+  // ---- advice ----
+  const advice = [];
+  if(budget>0){
+    const eff = complete ? total : (projection||total);
+    if(eff > budget) advice.push('You are '+(complete?'':'on track to finish ')+fmt(eff-budget)+' over your '+fmt(budget)+' budget. Look at the biggest category below for the easiest cut.');
+    else advice.push('You are within your '+fmt(budget)+' budget'+(complete?'':' so far')+' — '+fmt(budget-eff)+' of headroom. Consider moving part of it into savings.');
+  }
+  if(prevTotal>0){
+    const ch = (total-prevTotal)/prevTotal*100;
+    if(complete && ch > 10) advice.push('Spending rose '+ch.toFixed(0)+'% vs '+pmName+'. Check the category table for what drove it.');
+    if(complete && ch < -10) advice.push('Nice — you spent '+Math.abs(ch).toFixed(0)+'% less than '+pmName+'. Lock the gain in by raising your daily auto-save.');
+  }
+  const topKey = rows[0];
+  if(topKey && cur[topKey].total/total >= 0.4 && rows.length>1)
+    advice.push('"'+cur[topKey].name+'" is '+(cur[topKey].total/total*100).toFixed(0)+'% of the month — a small trim there beats big cuts elsewhere.');
+  const risers = movers.filter(m=>m.ch>=10).slice(0,2);
+  if(risers.length) advice.push('Prices rising: '+risers.map(m=>m.desc+' ▲'+m.ch.toFixed(0)+'%').join(', ')+'. Consider buying in bulk or switching brands.');
+  if(!state.savings.enabled && avg>0){
+    const suggest = Math.max(500, Math.round(avg*0.1/500)*500);
+    advice.push('No auto-save is running. Even '+fmt(suggest)+'/day (about 10% of your daily spend) would put away '+fmt(suggest*30)+' a month — set it up in 🐖 Savings.');
+  }
+  if(state.savings.enabled && savedThisMonth>0) advice.push('You saved '+fmt(savedThisMonth)+' this month with auto-save — that is '+(total>0?(savedThisMonth/total*100).toFixed(0)+'% of what you spent':'building')+'. Keep it going.');
+  if(walletBalance() < avg*7 && walletBalance() >= 0 && avg>0) advice.push('Wallet holds less than a week of spending ('+fmt(walletBalance())+'). Plan a top-up.');
+  if(walletBalance() < 0) advice.push('⚠️ Wallet is negative ('+fmt(walletBalance())+') — record your latest funding, or some expenses were paid from money the tracker has not seen.');
+  if(!advice.length) advice.push('Steady month — nothing alarming. Review the category table and set a budget in Settings to get sharper advice.');
+
+  const kpi = (label,val,sub) => `<div class="stat" style="box-shadow:none"><div class="lbl">${label}</div><div class="val" style="font-size:18px">${val}</div><div class="sub">${sub||''}</div></div>`;
+  const chBadge = (now,before) => {
+    if(!(before>0)) return '<span class="note-txt">new</span>';
+    const c = (now-before)/before*100;
+    if(Math.abs(c)<0.5) return '<span class="note-txt">—</span>';
+    return `<span class="chip" style="background:${c>0?'#fdecec':'#e7f6ec'};color:${c>0?'var(--danger)':'var(--ok)'}">${c>0?'&#9650;':'&#9660;'} ${Math.abs(c).toFixed(0)}%</span>`;
+  };
+
+  $('insBody').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">
+      ${kpi('Total spent', fmt(total), chBadge(total,prevTotal)===''?'':'vs '+pmName+': '+(prevTotal>0?fmt(prevTotal):'—'))}
+      ${kpi('Daily average', fmt(avg), 'over '+elapsed+' day'+(elapsed===1?'':'s'))}
+      ${projection!==null ? kpi('Projected month total', fmt(projection), 'if the pace continues') : kpi('Payees', fmt(payeeTotal), exps.filter(e=>e.payeeId).length+' payment'+(exps.filter(e=>e.payeeId).length===1?'':'s'))}
+      ${kpi('Saved this month', fmt(savedThisMonth), state.savings.enabled?'auto-save ON':'auto-save off')}
+    </div>
+    <h3 style="font-size:14px;margin-bottom:8px">Where the money went</h3>
+    <table style="font-size:13px;margin-bottom:16px">
+      <thead><tr><th>Category</th><th style="text-align:right">Amount</th><th style="text-align:right">Share</th><th>vs ${pmName}</th></tr></thead>
+      <tbody>${rows.map(k=>`<tr>
+        <td style="font-weight:600">${esc(cur[k].name)}</td>
+        <td class="amt" style="text-align:right">${fmt(cur[k].total)}</td>
+        <td style="text-align:right">${(cur[k].total/total*100).toFixed(0)}%</td>
+        <td>${chBadge(cur[k].total, prev[k]?prev[k].total:0)}</td>
+      </tr>`).join('')}</tbody>
+    </table>
+    <h3 style="font-size:14px;margin-bottom:8px">Biggest expenses</h3>
+    ${top3.map(e=>`<div class="cat-row"><span class="nm">${esc(e.catLabel || e.note || catById(e.cat).name)}<span class="note-txt" style="margin-left:6px">${new Date(e.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'})}</span></span><span class="amt" style="font-size:13px">${fmt(e.amount)}</span></div>`).join('')}
+    ${movers.length ? `<h3 style="font-size:14px;margin:16px 0 8px">Price watch</h3>
+      ${movers.slice(0,5).map(m=>`<div class="cat-row"><span class="nm">${esc(m.desc)}</span><span class="note-txt">${fmt(m.prevUnit)} &rarr; ${fmt(m.unit)}</span>${chBadge(m.unit,m.prevUnit)}</div>`).join('')}` : ''}
+    <h3 style="font-size:14px;margin:16px 0 8px">&#128161; Advice</h3>
+    ${advice.map(a=>`<div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid #f0f2f7;font-size:13.5px"><span>&#128161;</span><span>${a}</span></div>`).join('')}
+    ${!complete && mk===nowMk ? '<p style="font-size:11.5px;color:var(--muted);margin-top:12px">This is a preview — the final report is ready once the month ends. Use the &#9664; arrow to see past months’ final reports.</p>' : ''}
+  `;
+  $('insightsModal').classList.add('open');
 }
 function exportPayeesCSV(){
   let rows = selectedUnpaid();
@@ -1215,7 +1507,8 @@ function undoPayment(id){
 
 // ---------- wallet ----------
 function walletFunded(){ return state.wallet.fundings.reduce((s,f)=>s+f.amount,0); }
-function walletBalance(){ return walletFunded() - state.expenses.reduce((s,e)=>s+e.amount,0); }
+function savingsBalance(){ return (state.savings.entries||[]).reduce((s,e)=> s + (e.type==='withdraw' ? -e.amount : e.amount), 0); }
+function walletBalance(){ return walletFunded() - state.expenses.reduce((s,e)=>s+e.amount,0) - savingsBalance(); }
 function openWallet(){
   $('wAmt').value=''; $('wNote').value=''; $('wDate').value = todayStr();
   renderWallet();
@@ -1852,6 +2145,11 @@ function renderPrices(q){
 function openSettings(){
   $('sCur').value = state.settings.currency;
   $('sBudget').value = state.settings.budget || '';
+  const p = state.profile || {};
+  $('setProfAvatar').innerHTML = p.photo
+    ? `<img src="${p.photo}" style="width:100%;height:100%;object-fit:cover">`
+    : (initialsOf(p.name) || '&#128100;');
+  $('setProfName').textContent = p.name || 'Not set up yet';
   renderCatList();
   renderMethodList();
   $('settingsModal').classList.add('open');
@@ -1988,8 +2286,10 @@ function render(){
   }
   const bal = walletBalance(), funded = walletFunded();
   const balCol = bal < 0 ? 'var(--danger)' : 'var(--ink)';
+  const savBal = savingsBalance();
   $('stats').innerHTML = `
     <div class="stat"><div class="lbl">Wallet balance</div><div class="val" style="color:${balCol}">${fmt(bal)}</div><div class="sub">${funded ? fmt(funded)+' funded to date' : '<a href="#" onclick="openWallet();return false" style="color:var(--accent);font-weight:600">Set starting amount &rarr;</a>'}</div></div>
+    <div class="stat"><div class="lbl">Savings</div><div class="val" style="color:var(--ok)">${fmt(savBal)}</div><div class="sub">${state.savings.enabled && state.savings.daily>0 ? fmt(state.savings.daily)+'/day auto-save ON' : '<a href="#" onclick="openSavings();return false" style="color:var(--accent);font-weight:600">Set up auto-save &rarr;</a>'}</div></div>
     <div class="stat"><div class="lbl">Total spent</div><div class="val">${fmt(total)}</div><div class="sub">${monthExps.length} expense${monthExps.length===1?'':'s'} this month</div></div>
     <div class="stat"><div class="lbl">Daily average</div><div class="val">${fmt(avgDay)}</div><div class="sub">over ${daysElapsed} day${daysElapsed===1?'':'s'}</div></div>
     <div class="stat"><div class="lbl">Top category</div><div class="val" style="font-size:17px">${topKey?esc(byGroup[topKey].name):'—'}</div><div class="sub">${topKey?fmt(byGroup[topKey].total):'no expenses yet'}</div></div>
@@ -2155,9 +2455,22 @@ function compact(n){
 }
 
 // ---------- init ----------
+processAutoSavings();
 resetForm();
 render();
 window.addEventListener('resize', ()=>drawTrend());
+// month-end report nudge: once per month, if last month has data
+(function(){
+  const nowMk = monthKey(new Date());
+  if(state.settings.lastReportNudge === nowMk) return;
+  const pm = new Date(); pm.setDate(1); pm.setMonth(pm.getMonth()-1);
+  const pmk = monthKey(pm);
+  if(state.expenses.some(e=>keyOfDateStr(e.date)===pmk)){
+    state.settings.lastReportNudge = nowMk;
+    persist();
+    setTimeout(()=>toast('📊 Your '+pm.toLocaleDateString(undefined,{month:'long'})+' report is ready — go to last month and open Insights'), 1200);
+  }
+})();
 </script>
 </body>
 </html>
