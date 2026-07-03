@@ -105,10 +105,10 @@
 <div class="wrap">
   <header>
     <div class="brand">
-      <div class="mark">&#128181;</div>
+      <div class="mark" id="brandMark" onclick="openProfile()" style="cursor:pointer;overflow:hidden" title="Your profile">&#128181;</div>
       <div>
         <h1>Personal Expense Tracker</h1>
-        <p>Know where your money goes</p>
+        <p id="brandSub">Know where your money goes</p>
       </div>
     </div>
     <div class="hdr-actions">
@@ -117,6 +117,7 @@
         <span class="label" id="monthLabel"></span>
         <button onclick="shiftMonth(1)" title="Next month">&#9654;</button>
       </div>
+      <button class="btn btn-ghost" onclick="openProfile()">&#128100; Profile</button>
       <button class="btn btn-ghost" onclick="openPrices()">&#128200; Prices</button>
       <button class="btn btn-ghost" onclick="openWallet()">&#128176; Wallet</button>
       <button class="btn btn-ghost" onclick="openSettings()">&#9881;&#65039; Settings</button>
@@ -283,6 +284,52 @@
     <div class="actions">
       <button class="btn btn-danger" onclick="clearAll()">Clear all data</button>
       <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Profile modal -->
+<div class="modal-bg" id="profileModal">
+  <div class="modal" style="max-width:440px">
+    <h3>&#128100; Account Owner Profile</h3>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+      <div id="profPreview" style="width:72px;height:72px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;color:var(--accent);overflow:hidden;flex-shrink:0"></div>
+      <div style="flex:1">
+        <label>Profile picture</label>
+        <input type="file" id="prPhoto" accept="image/*">
+        <button type="button" class="btn btn-danger btn-sm" id="prPhotoRemove" style="display:none;margin-top:6px" onclick="removeProfilePhoto()">&#10005; Remove photo</button>
+      </div>
+    </div>
+    <div class="form-grid">
+      <div>
+        <label>Full name</label>
+        <input type="text" id="prName" placeholder="e.g. Yetunde Igbene" maxlength="60">
+      </div>
+      <div>
+        <label>Username</label>
+        <input type="text" id="prUsername" placeholder="e.g. yetty01" maxlength="30">
+      </div>
+      <div class="full">
+        <label>Phone number</label>
+        <input type="tel" id="prPhone" placeholder="e.g. 08012345678" maxlength="20">
+      </div>
+      <div>
+        <label>Bank</label>
+        <input type="text" id="prBank" list="bankOptions" placeholder="Pick or type" maxlength="60">
+      </div>
+      <div>
+        <label>Bank code (auto-filled)</label>
+        <input type="text" id="prBankCode" placeholder="e.g. 000013" maxlength="12">
+      </div>
+      <div class="full">
+        <label>Account number</label>
+        <input type="text" id="prAcct" placeholder="e.g. 0123456789" maxlength="20">
+      </div>
+    </div>
+    <p style="font-size:11.5px;color:var(--muted);margin-top:10px">Stored only on this device, like everything else in the tracker.</p>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal('profileModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveProfile()">&#128190; Save Profile</button>
     </div>
   </div>
 </div>
@@ -631,6 +678,7 @@ function defaults(){
     ],
     grocs: [],
     payees: [],
+    profile: { name:'', username:'', phone:'', photo:null, bank:'', bankCode:'', acct:'' },
     wallet: { fundings: [] },
     methods: [
       'Cash',
@@ -672,6 +720,7 @@ function load(){
           d.categories.splice(pi>-1 ? pi : d.categories.length, 0, nc);
         });
         d.grocs = d.grocs || [];
+        d.profile = d.profile || { name:'', username:'', phone:'', photo:null, bank:'', bankCode:'', acct:'' };
         if(!d.settings.bankCodesV1){
           (d.payees||[]).forEach(p=>{
             const bk = findBank(p.bank);
@@ -823,6 +872,77 @@ $('pBank').addEventListener('change', ()=>{
   const bk = findBank($('pBank').value);
   if(bk){ $('pBank').value = bk[0]; $('pBankCode').value = bk[1]; }
 });
+
+// ---------- account owner profile ----------
+let profDraftPhoto = null;
+$('prBank').addEventListener('change', ()=>{
+  const bk = findBank($('prBank').value);
+  if(bk){ $('prBank').value = bk[0]; $('prBankCode').value = bk[1]; }
+});
+$('prPhoto').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = ()=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const s = 128, cv = document.createElement('canvas');
+      cv.width = s; cv.height = s;
+      const m = Math.min(img.width, img.height);
+      cv.getContext('2d').drawImage(img, (img.width-m)/2, (img.height-m)/2, m, m, 0, 0, s, s);
+      profDraftPhoto = cv.toDataURL('image/jpeg', 0.85);
+      renderProfPreview();
+    };
+    img.src = r.result;
+  };
+  r.readAsDataURL(f);
+});
+function initialsOf(name){
+  return String(name||'').trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+}
+function renderProfPreview(){
+  const name = $('prName').value;
+  $('profPreview').innerHTML = profDraftPhoto
+    ? `<img src="${profDraftPhoto}" style="width:100%;height:100%;object-fit:cover">`
+    : (initialsOf(name) || '&#128100;');
+  $('prPhotoRemove').style.display = profDraftPhoto ? 'inline-flex' : 'none';
+}
+function removeProfilePhoto(){ profDraftPhoto = null; $('prPhoto').value=''; renderProfPreview(); }
+$('prName').addEventListener('input', renderProfPreview);
+function openProfile(){
+  const p = state.profile || {};
+  $('prName').value = p.name||'';
+  $('prUsername').value = p.username||'';
+  $('prPhone').value = p.phone||'';
+  $('prBank').value = p.bank||'';
+  $('prBankCode').value = p.bankCode||'';
+  $('prAcct').value = p.acct||'';
+  profDraftPhoto = p.photo || null;
+  $('prPhoto').value = '';
+  renderProfPreview();
+  $('profileModal').classList.add('open');
+}
+function saveProfile(){
+  state.profile = {
+    name: $('prName').value.trim(),
+    username: $('prUsername').value.trim(),
+    phone: $('prPhone').value.trim(),
+    photo: profDraftPhoto,
+    bank: $('prBank').value.trim(),
+    bankCode: padCode($('prBankCode').value) || $('prBankCode').value.trim(),
+    acct: $('prAcct').value.trim()
+  };
+  persist(); closeModal('profileModal'); renderProfileHeader();
+  toast(state.profile.name ? 'Profile saved — welcome, '+state.profile.name.split(' ')[0]+'!' : 'Profile saved');
+}
+function renderProfileHeader(){
+  const p = state.profile || {};
+  $('brandMark').innerHTML = p.photo
+    ? `<img src="${p.photo}" style="width:100%;height:100%;object-fit:cover">`
+    : (initialsOf(p.name) || '&#128181;');
+  $('brandSub').textContent = p.name
+    ? 'Welcome back, '+p.name.split(' ')[0]+(p.username?' (@'+p.username+')':'')
+    : 'Know where your money goes';
+}
 function exportPayeesCSV(){
   let rows = selectedUnpaid();
   const scope = rows.length ? 'ticked' : 'all';
@@ -1936,6 +2056,7 @@ function render(){
     $('expBody').innerHTML = rowsArr.map(r=>r.html).join('');
   }
 
+  renderProfileHeader();
   renderPayees(mk);
   renderGrocery();
   drawDonut(byGroup, total);
