@@ -291,9 +291,9 @@
       <button class="btn btn-ghost" onclick="addCategory()">Add</button>
     </div>
     <h3 style="margin-top:20px">AI receipt scanning</h3>
-    <label>Claude API key (stored only on this device)</label>
-    <input type="password" id="sApiKey" placeholder="sk-ant-...">
-    <p style="font-size:11.5px;color:var(--muted);margin-top:6px">Create a key at console.anthropic.com &rarr; API keys, and add a little credit (pay-as-you-go). Each receipt scan costs a few naira. With a key saved, the &#128247; Scan receipt button in Add Expense reads photos automatically.</p>
+    <label>Personal Claude API key (optional — stored only on this device)</label>
+    <input type="password" id="sApiKey" placeholder="sk-ant-... (leave empty to use the app's shared scanning)">
+    <p style="font-size:11.5px;color:var(--muted);margin-top:6px">&#128247; Scan receipt works out of the box using the app's shared scanning service. Optionally paste your own key from console.anthropic.com to pay for your own scans instead.</p>
     <h3 style="margin-top:20px">Payment methods</h3>
     <div id="methodList" style="max-height:180px;overflow:auto"></div>
     <div style="display:flex;gap:8px;margin-top:12px">
@@ -2146,12 +2146,11 @@ const RECEIPT_SCHEMA = {
   required: ['merchant','date','items','grand_total'],
   additionalProperties: false
 };
+// Shared scanning proxy (holds the owner's Anthropic key server-side; this
+// anon key is Supabase's public gateway pass — safe to ship in app code)
+const SCAN_PROXY_URL = 'https://ntizoutqjsnxxmwprjtm.supabase.co/functions/v1/scan-receipt';
+const SCAN_PROXY_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im50aXpvdXRxanNueHhtd3ByanRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwMTQ2NDYsImV4cCI6MjA5ODU5MDY0Nn0.A2VIBBl0CabrQ72dCfINE1rdd9V7zjPcCmPTpGlFxr4';
 function startScanReceipt(){
-  if(!state.settings.apiKey){
-    toast('Add your Claude API key in Settings first (AI receipt scanning)');
-    openSettings();
-    return;
-  }
   $('scanFile').value = '';
   $('scanFile').click();
 }
@@ -2183,31 +2182,48 @@ async function scanReceipt(b64){
   const oldLabel = btn.innerHTML;
   btn.innerHTML = '&#9203; Scanning…';
   try{
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': state.settings.apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5',
-        max_tokens: 4000,
-        output_config: { format: { type: 'json_schema', schema: RECEIPT_SCHEMA } },
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
-            { type: 'text', text: 'Extract all line items from this receipt or order screenshot. Include delivery fees, service charges, renewal fees and similar charges as items. Skip free (zero-cost, zero-quantity) items. Amounts must be plain numbers with no currency symbols or thousand separators. Use 0 for unknown numbers and "" for unknown text. Date as YYYY-MM-DD.' }
-          ]
-        }]
-      })
-    });
+    let res;
+    if(state.settings.apiKey){
+      // personal key: call the Claude API directly from this device
+      res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': state.settings.apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5',
+          max_tokens: 4000,
+          output_config: { format: { type: 'json_schema', schema: RECEIPT_SCHEMA } },
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+              { type: 'text', text: 'Extract all line items from this receipt or order screenshot. Include delivery fees, service charges, renewal fees and similar charges as items. Skip free (zero-cost, zero-quantity) items. Amounts must be plain numbers with no currency symbols or thousand separators. Use 0 for unknown numbers and "" for unknown text. Date as YYYY-MM-DD.' }
+            ]
+          }]
+        })
+      });
+    }else{
+      // shared scanning: the app's own proxy holds the key server-side
+      res = await fetch(SCAN_PROXY_URL, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Authorization': 'Bearer '+SCAN_PROXY_KEY,
+          'apikey': SCAN_PROXY_KEY
+        },
+        body: JSON.stringify({ image: b64 })
+      });
+    }
     if(!res.ok){
       const err = await res.json().catch(()=>null);
-      const msg = err && err.error && err.error.message ? err.error.message : ('HTTP '+res.status);
-      if(res.status === 401) throw new Error('API key rejected — check it in Settings');
+      const msg = err && err.error
+        ? (typeof err.error === 'string' ? err.error : (err.error.message || ('HTTP '+res.status)))
+        : ('HTTP '+res.status);
+      if(res.status === 401) throw new Error(state.settings.apiKey ? 'API key rejected — check it in Settings' : 'Scan service unavailable — try again later');
       if(res.status === 429) throw new Error('Rate limited — wait a moment and try again');
       throw new Error(msg);
     }
