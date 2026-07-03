@@ -165,9 +165,11 @@
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
               <label style="margin:0">Item details (optional) &mdash; log what you bought to track prices</label>
               <span>
+                <button type="button" class="btn btn-ghost btn-sm" id="scanBtn" onclick="startScanReceipt()">&#128247; Scan receipt (AI)</button>
                 <button type="button" class="btn btn-ghost btn-sm" onclick="importItemsFile()">&#11014;&#65039; Import list (CSV/Excel)</button>
                 <button type="button" class="btn btn-ghost btn-sm" onclick="downloadSample('items')" title="Download an example grocery list showing the expected columns">&#128196; Sample</button>
                 <button type="button" class="btn btn-ghost btn-sm" onclick="addItemRow()">&#10133; Add item</button>
+                <input type="file" id="scanFile" accept="image/*" style="display:none">
               </span>
             </div>
             <div id="itemsBox" style="display:none;margin-top:8px">
@@ -288,6 +290,10 @@
       <input type="color" id="newCatColor" value="#2563eb" style="width:44px;height:38px;padding:3px;border-radius:9px;border:1px solid var(--border);cursor:pointer">
       <button class="btn btn-ghost" onclick="addCategory()">Add</button>
     </div>
+    <h3 style="margin-top:20px">AI receipt scanning</h3>
+    <label>Claude API key (stored only on this device)</label>
+    <input type="password" id="sApiKey" placeholder="sk-ant-...">
+    <p style="font-size:11.5px;color:var(--muted);margin-top:6px">Create a key at console.anthropic.com &rarr; API keys, and add a little credit (pay-as-you-go). Each receipt scan costs a few naira. With a key saved, the &#128247; Scan receipt button in Add Expense reads photos automatically.</p>
     <h3 style="margin-top:20px">Payment methods</h3>
     <div id="methodList" style="max-height:180px;overflow:auto"></div>
     <div style="display:flex;gap:8px;margin-top:12px">
@@ -2115,6 +2121,126 @@ function openPricesFor(desc){
   $('priceModal').classList.add('open');
 }
 
+// ---------- AI receipt scanning (Claude API, key stored on-device) ----------
+const RECEIPT_SCHEMA = {
+  type: 'object',
+  properties: {
+    merchant: { type: 'string', description: 'Store or seller name, empty string if not visible' },
+    date: { type: 'string', description: 'Purchase date as YYYY-MM-DD, empty string if not visible' },
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          desc:  { type: 'string', description: 'Item description' },
+          qty:   { type: 'number', description: 'Quantity, 0 if unknown' },
+          unit:  { type: 'number', description: 'Unit price, 0 if unknown' },
+          total: { type: 'number', description: 'Line total' }
+        },
+        required: ['desc','qty','unit','total'],
+        additionalProperties: false
+      }
+    },
+    grand_total: { type: 'number', description: 'Receipt grand total, 0 if not visible' }
+  },
+  required: ['merchant','date','items','grand_total'],
+  additionalProperties: false
+};
+function startScanReceipt(){
+  if(!state.settings.apiKey){
+    toast('Add your Claude API key in Settings first (AI receipt scanning)');
+    openSettings();
+    return;
+  }
+  $('scanFile').value = '';
+  $('scanFile').click();
+}
+$('scanFile').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onerror = ()=> toast('⚠️ Could not read that file');
+  r.onload = ()=>{
+    const img = new Image();
+    img.onerror = ()=> toast('⚠️ Could not open that image — try a JPG or PNG');
+    img.onload = ()=>{
+      // downscale to max 1568px on the long edge to keep scans cheap
+      const maxDim = 1568;
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(img.width * scale);
+      cv.height = Math.round(img.height * scale);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      const b64 = cv.toDataURL('image/jpeg', 0.85).split(',')[1];
+      scanReceipt(b64);
+    };
+    img.src = r.result;
+  };
+  r.readAsDataURL(f);
+});
+async function scanReceipt(b64){
+  const btn = $('scanBtn');
+  btn.disabled = true;
+  const oldLabel = btn.innerHTML;
+  btn.innerHTML = '&#9203; Scanning…';
+  try{
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': state.settings.apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: 4000,
+        output_config: { format: { type: 'json_schema', schema: RECEIPT_SCHEMA } },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+            { type: 'text', text: 'Extract all line items from this receipt or order screenshot. Include delivery fees, service charges, renewal fees and similar charges as items. Skip free (zero-cost, zero-quantity) items. Amounts must be plain numbers with no currency symbols or thousand separators. Use 0 for unknown numbers and "" for unknown text. Date as YYYY-MM-DD.' }
+          ]
+        }]
+      })
+    });
+    if(!res.ok){
+      const err = await res.json().catch(()=>null);
+      const msg = err && err.error && err.error.message ? err.error.message : ('HTTP '+res.status);
+      if(res.status === 401) throw new Error('API key rejected — check it in Settings');
+      if(res.status === 429) throw new Error('Rate limited — wait a moment and try again');
+      throw new Error(msg);
+    }
+    const data = await res.json();
+    if(data.stop_reason === 'refusal') throw new Error('The AI declined to read this image — try a clearer photo');
+    const text = (data.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('');
+    const parsed = JSON.parse(text);
+    const items = (parsed.items||[]).filter(it=>String(it.desc||'').trim() && parseNum(it.total)>0).map(it=>({
+      desc: String(it.desc).trim(),
+      qty: parseNum(it.qty) || '',
+      unit: parseNum(it.unit) || '',
+      total: parseNum(it.total)
+    }));
+    if(!items.length) throw new Error('No priced items found on that image — is it a receipt?');
+    formItems = formItems.concat(items);
+    renderItemRows();
+    if(!parseFloat($('fAmt').value)){
+      const gt = parseNum(parsed.grand_total);
+      $('fAmt').value = (gt > 0 ? gt : itemsTotal()).toFixed(2);
+    }
+    if(parsed.merchant && !$('fNote').value.trim()) $('fNote').value = String(parsed.merchant).trim();
+    const d = parseDateFlex(parsed.date);
+    if(d) $('fDate').value = d;
+    toast('📷 '+items.length+' item'+(items.length===1?'':'s')+' extracted — check them, set the category, then Add Expense');
+    window.scrollTo({top:0,behavior:'smooth'});
+  }catch(err){
+    toast('⚠️ Scan failed: '+(err && err.message ? err.message : 'unknown error'));
+  }finally{
+    btn.disabled = false;
+    btn.innerHTML = oldLabel;
+  }
+}
+
 // ---------- price history ----------
 function openPrices(){ $('priceSearch').value=''; renderPrices(''); $('priceModal').classList.add('open'); }
 function renderPrices(q){
@@ -2172,6 +2298,7 @@ function renderPrices(q){
 function openSettings(){
   $('sCur').value = state.settings.currency;
   $('sBudget').value = state.settings.budget || '';
+  $('sApiKey').value = state.settings.apiKey || '';
   const p = state.profile || {};
   $('setProfAvatar').innerHTML = p.photo
     ? `<img src="${p.photo}" style="width:100%;height:100%;object-fit:cover">`
@@ -2211,6 +2338,7 @@ function removeCat(id){
 function saveSettings(){
   state.settings.currency = $('sCur').value || '₦';
   state.settings.budget = parseFloat($('sBudget').value) || 0;
+  state.settings.apiKey = $('sApiKey').value.trim();
   persist(); $('settingsModal').classList.remove('open'); render(); toast('Settings saved');
 }
 function clearAll(){
