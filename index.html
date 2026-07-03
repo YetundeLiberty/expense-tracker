@@ -1,0 +1,2042 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Personal Expense Tracker</title>
+<style>
+  :root{
+    --bg:#f4f6fa; --card:#ffffff; --ink:#1c2333; --muted:#6b7487;
+    --accent:#2563eb; --accent-soft:#e8effd; --danger:#dc2626; --ok:#16a34a;
+    --warn:#d97706; --border:#e3e7ef; --radius:14px;
+    --shadow:0 1px 3px rgba(16,24,40,.06),0 4px 14px rgba(16,24,40,.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh}
+  .wrap{max-width:1060px;margin:0 auto;padding:20px 16px 60px}
+
+  header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px}
+  .brand{display:flex;align-items:center;gap:12px}
+  .brand .mark{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#2563eb,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff}
+  .brand h1{font-size:20px;font-weight:700}
+  .brand p{font-size:12px;color:var(--muted)}
+  .hdr-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+  .btn{border:none;border-radius:10px;padding:9px 16px;font-size:13.5px;font-weight:600;cursor:pointer;transition:.15s;display:inline-flex;align-items:center;gap:6px}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:#1d4fd8}
+  .btn-ghost{background:var(--card);color:var(--ink);border:1px solid var(--border)}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+  .btn-danger{background:#fdecec;color:var(--danger)}
+  .btn-danger:hover{background:#fadbdb}
+  .btn-sm{padding:5px 10px;font-size:12px;border-radius:8px}
+
+  /* month nav */
+  .month-nav{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:6px 8px;box-shadow:var(--shadow)}
+  .month-nav button{background:none;border:none;font-size:16px;cursor:pointer;color:var(--muted);padding:4px 8px;border-radius:8px}
+  .month-nav button:hover{background:var(--accent-soft);color:var(--accent)}
+  .month-nav .label{font-weight:700;font-size:14px;min-width:130px;text-align:center}
+
+  /* stat cards */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:18px}
+  .stat{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow)}
+  .stat .lbl{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+  .stat .val{font-size:22px;font-weight:800;margin-top:6px}
+  .stat .sub{font-size:12px;color:var(--muted);margin-top:4px}
+
+  /* budget */
+  .budget-bar{height:9px;background:#eef1f6;border-radius:99px;overflow:hidden;margin-top:10px}
+  .budget-fill{height:100%;border-radius:99px;background:var(--ok);transition:.4s}
+
+  .grid{display:grid;grid-template-columns:1fr 340px;gap:16px}
+  @media(max-width:840px){.grid{grid-template-columns:1fr}}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px}
+  .card h2{font-size:15px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
+
+  /* form */
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .form-grid .full{grid-column:1/-1}
+  label{font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px}
+  input,select{width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:9px;font-size:14px;background:#fbfcfe;color:var(--ink);font-family:inherit}
+  input:focus,select:focus{outline:none;border-color:var(--accent);background:#fff}
+
+  /* filters */
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .filters input,.filters select{width:auto;flex:1;min-width:120px}
+
+  /* table */
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--border)}
+  td{padding:10px;border-bottom:1px solid #f0f2f7;vertical-align:middle}
+  tr:hover td{background:#fafbfe}
+  .amt{font-weight:700;white-space:nowrap}
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:3px 10px;border-radius:99px;white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:50%}
+  .note-txt{color:var(--muted);font-size:12px}
+  .empty{text-align:center;color:var(--muted);padding:36px 10px;font-size:14px}
+  .empty .big{font-size:34px;margin-bottom:8px}
+
+  /* charts */
+  canvas{max-width:100%}
+  .legend{display:flex;flex-direction:column;gap:7px;margin-top:12px;font-size:13px}
+  .legend .row{display:flex;align-items:center;gap:8px}
+  .legend .row .nm{flex:1}
+  .legend .row .v{font-weight:700}
+  .legend .row .pct{color:var(--muted);font-size:12px;width:44px;text-align:right}
+
+  /* modal */
+  .modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+  .modal-bg.open{display:flex}
+  .modal{background:var(--card);border-radius:16px;max-width:460px;width:100%;padding:22px;max-height:90vh;overflow:auto}
+  .modal h3{font-size:16px;margin-bottom:16px}
+  .modal .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+
+  .cat-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0f2f7}
+  .cat-row input[type=color]{width:34px;height:30px;padding:2px;border-radius:8px;cursor:pointer}
+  .cat-row .nm{flex:1;font-size:14px;font-weight:600}
+  .cat-row .del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px}
+  .cat-row .del:hover{color:var(--danger)}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);background:#1c2333;color:#fff;padding:11px 20px;border-radius:12px;font-size:13.5px;opacity:0;transition:.3s;z-index:99;pointer-events:none}
+  .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="mark">&#128181;</div>
+      <div>
+        <h1>Personal Expense Tracker</h1>
+        <p>Know where your money goes</p>
+      </div>
+    </div>
+    <div class="hdr-actions">
+      <div class="month-nav">
+        <button onclick="shiftMonth(-1)" title="Previous month">&#9664;</button>
+        <span class="label" id="monthLabel"></span>
+        <button onclick="shiftMonth(1)" title="Next month">&#9654;</button>
+      </div>
+      <button class="btn btn-ghost" onclick="openPrices()">&#128200; Prices</button>
+      <button class="btn btn-ghost" onclick="openWallet()">&#128176; Wallet</button>
+      <button class="btn btn-ghost" onclick="openSettings()">&#9881;&#65039; Settings</button>
+      <button class="btn btn-ghost" onclick="exportCSV()">&#11015;&#65039; Export CSV</button>
+    </div>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="grid">
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <h2>Add Expense</h2>
+        <form id="expForm" class="form-grid" onsubmit="return saveExpense(event)">
+          <input type="hidden" id="fId">
+          <div>
+            <label>Amount</label>
+            <input type="number" id="fAmt" step="0.01" min="0.01" placeholder="0.00" required>
+          </div>
+          <div>
+            <label>Date</label>
+            <input type="date" id="fDate" required>
+          </div>
+          <div>
+            <label>Category</label>
+            <select id="fCat" required></select>
+            <input type="text" id="fCatOther" placeholder="What is it? e.g. SIM recovery fee" style="display:none;margin-top:6px" maxlength="60">
+          </div>
+          <div>
+            <label>Payment method</label>
+            <select id="fMethod"></select>
+            <input type="text" id="fMethodOther" placeholder="Specify method, e.g. POS" style="display:none;margin-top:6px" maxlength="40">
+          </div>
+          <div class="full">
+            <label>Note (optional)</label>
+            <input type="text" id="fNote" placeholder="e.g. Lunch with friends" maxlength="120">
+          </div>
+          <div class="full">
+            <label>Attach document (optional) &mdash; receipt, grocery list, etc. Max 1.5 MB</label>
+            <input type="file" id="fFile" accept="image/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx">
+            <div id="fileInfo" style="font-size:12px;color:var(--muted);margin-top:5px"></div>
+          </div>
+          <div class="full">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+              <label style="margin:0">Item details (optional) &mdash; log what you bought to track prices</label>
+              <span>
+                <button type="button" class="btn btn-ghost btn-sm" onclick="importItemsFile()">&#11014;&#65039; Import list (CSV/Excel)</button>
+                <button type="button" class="btn btn-ghost btn-sm" onclick="addItemRow()">&#10133; Add item</button>
+              </span>
+            </div>
+            <div id="itemsBox" style="display:none;margin-top:8px">
+              <div style="overflow-x:auto">
+                <table style="font-size:13px">
+                  <thead><tr><th style="width:34px">S/N</th><th>Item</th><th style="width:70px">Qty</th><th style="width:110px">Unit price</th><th style="width:110px">Total</th><th style="width:30px"></th></tr></thead>
+                  <tbody id="itemsBody"></tbody>
+                </table>
+              </div>
+              <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:8px">
+                <span style="font-size:13px;font-weight:700">Items total: <span id="itemsSum"></span></span>
+                <button type="button" class="btn btn-ghost btn-sm" onclick="useItemsTotal()">Use as expense amount</button>
+              </div>
+            </div>
+          </div>
+          <div class="full" style="display:flex;gap:8px;justify-content:flex-end">
+            <button type="button" class="btn btn-ghost" id="cancelEdit" style="display:none" onclick="resetForm()">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="submitBtn">&#10133; Add Expense</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2><span>Expenses <span id="listCount" style="font-size:12px;color:var(--muted);font-weight:600"></span></span>
+          <button class="btn btn-ghost btn-sm" onclick="importStatementFile()">&#11014;&#65039; Import bank statement</button>
+        </h2>
+        <div class="filters">
+          <input type="text" id="fltSearch" placeholder="&#128269; Search notes..." oninput="render()">
+          <select id="fltCat" onchange="render()"><option value="">All categories</option></select>
+        </div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr><th>Date</th><th>Category</th><th>Note</th><th>Method</th><th style="text-align:right">Amount</th><th></th></tr></thead>
+            <tbody id="expBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <h2>By Category</h2>
+        <div style="display:flex;justify-content:center"><canvas id="donut" width="200" height="200"></canvas></div>
+        <div class="legend" id="legend"></div>
+      </div>
+      <div class="card">
+        <h2>Last 6 Months</h2>
+        <canvas id="trend" width="300" height="170"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2>Monthly Payees
+      <span>
+        <button class="btn btn-primary btn-sm" id="paySelBtn" style="display:none" onclick="openBatchPay()"></button>
+        <button class="btn btn-ghost btn-sm" onclick="importPayeesFile()">&#11014;&#65039; Import from Excel/CSV</button>
+        <button class="btn btn-ghost btn-sm" onclick="exportPayeesCSV()">&#11015;&#65039; Export for payment</button>
+        <button class="btn btn-primary btn-sm" onclick="openPayeeModal()">&#10133; Add Payee</button>
+      </span>
+    </h2>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th style="width:30px"><input type="checkbox" id="selAllPayees" onchange="toggleAllPayees(this.checked)" title="Select all unpaid"></th><th>Name</th><th>Description</th><th>Bank</th><th>Bank code</th><th>Account number</th><th style="text-align:right">Amount</th><th style="text-align:right">Total paid</th><th>This month</th><th></th></tr></thead>
+        <tbody id="payeeBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2><span>&#128717;&#65039; Grocery Tracker <span id="grocSummary" style="font-size:12px;color:var(--muted);font-weight:600"></span></span>
+      <button class="btn btn-primary btn-sm" onclick="openGrocModal()">&#10133; Add Item</button>
+    </h2>
+    <div class="filters">
+      <input type="text" id="grocSearch" placeholder="&#128269; Search items, e.g. eggs" oninput="renderGrocery()">
+      <select id="grocCat" onchange="renderGrocery()"></select>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Item</th><th>Last bought</th><th style="text-align:right">Purchases</th><th style="text-align:right">Last unit price</th><th>vs previous</th><th style="text-align:right">Total spent</th><th></th></tr></thead>
+        <tbody id="grocBody"></tbody>
+      </table>
+    </div>
+    <p style="font-size:11.5px;color:var(--muted);margin-top:8px">Click any item's name for its full price history. Use <b>&#128722; Log</b> to record a purchase — it books the expense for you. Items also flow in from expense item details and imported lists.</p>
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div class="modal-bg" id="settingsModal">
+  <div class="modal">
+    <h3>&#9881;&#65039; Settings</h3>
+    <div class="form-grid">
+      <div>
+        <label>Currency symbol</label>
+        <input type="text" id="sCur" maxlength="4">
+      </div>
+      <div>
+        <label>Monthly budget (0 = off)</label>
+        <input type="number" id="sBudget" min="0" step="0.01">
+      </div>
+    </div>
+    <h3 style="margin-top:20px">Categories</h3>
+    <div id="catList"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <input type="text" id="newCatName" placeholder="New category name" style="flex:1">
+      <input type="color" id="newCatColor" value="#2563eb" style="width:44px;height:38px;padding:3px;border-radius:9px;border:1px solid var(--border);cursor:pointer">
+      <button class="btn btn-ghost" onclick="addCategory()">Add</button>
+    </div>
+    <h3 style="margin-top:20px">Payment methods</h3>
+    <div id="methodList" style="max-height:180px;overflow:auto"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <input type="text" id="newMethodName" placeholder='e.g. "Transfer – Zenith" or "Cash"' style="flex:1">
+      <button class="btn btn-ghost" onclick="addMethod()">Add</button>
+    </div>
+    <p style="font-size:11.5px;color:var(--muted);margin-top:6px">Tip: use "Group – Name" (e.g. "Card – Zenith Card") to nest a method under a group in the dropdown.</p>
+    <div class="actions">
+      <button class="btn btn-danger" onclick="clearAll()">Clear all data</button>
+      <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Payee modal -->
+<div class="modal-bg" id="payeeModal">
+  <div class="modal">
+    <h3 id="payeeTitle">Add Payee</h3>
+    <input type="hidden" id="pId">
+    <div class="form-grid">
+      <div class="full">
+        <label>Name</label>
+        <input type="text" id="pName" placeholder="e.g. House help, Driver, Landlord" maxlength="60">
+      </div>
+      <div>
+        <label>Bank</label>
+        <input type="text" id="pBank" list="bankOptions" placeholder="Pick or type, e.g. UBA" maxlength="60">
+        <datalist id="bankOptions"></datalist>
+      </div>
+      <div>
+        <label>Bank code (6 digits, auto-filled)</label>
+        <input type="text" id="pBankCode" placeholder="e.g. 000004" maxlength="12">
+      </div>
+      <div>
+        <label>Account number</label>
+        <input type="text" id="pAcct" placeholder="e.g. 2188085220" maxlength="20">
+      </div>
+      <div>
+        <label>Monthly amount</label>
+        <input type="number" id="pAmt" step="0.01" min="0.01" placeholder="0.00">
+      </div>
+      <div>
+        <label>Description / funds expected</label>
+        <input type="text" id="pDesc" list="descOptions" placeholder="Pick or type, e.g. Salary" maxlength="80">
+        <datalist id="descOptions"></datalist>
+      </div>
+      <div class="full">
+        <label>Category for these payments</label>
+        <select id="pCat"></select>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal('payeeModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="savePayee()">Save Payee</button>
+    </div>
+  </div>
+</div>
+
+<!-- Record payment modal -->
+<div class="modal-bg" id="payModal">
+  <div class="modal" style="max-width:420px">
+    <h3 id="payTitle">Record Payment</h3>
+    <input type="hidden" id="payPayeeId">
+    <div class="form-grid">
+      <div>
+        <label>Amount</label>
+        <input type="number" id="payAmt" step="0.01" min="0.01">
+      </div>
+      <div>
+        <label>Date paid</label>
+        <input type="date" id="payDate">
+      </div>
+      <div class="full">
+        <label>Payment method</label>
+        <select id="payMethod"></select>
+        <input type="text" id="payMethodOther" placeholder="Specify method, e.g. POS" style="display:none;margin-top:6px" maxlength="40">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal('payModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmPay()">&#10003; Record Payment</button>
+    </div>
+  </div>
+</div>
+
+<!-- Grocery item modal -->
+<div class="modal-bg" id="grocModal">
+  <div class="modal" style="max-width:400px">
+    <h3 id="grocTitle">Add Grocery Item</h3>
+    <input type="hidden" id="gId">
+    <div class="form-grid">
+      <div class="full">
+        <label>Item name</label>
+        <input type="text" id="gName" placeholder="e.g. 2 crates of eggs" maxlength="80">
+      </div>
+      <div class="full">
+        <label>Category</label>
+        <select id="gCat"></select>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal('grocModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveGrocItem()">Save Item</button>
+    </div>
+  </div>
+</div>
+
+<!-- Log purchase modal -->
+<div class="modal-bg" id="logModal">
+  <div class="modal" style="max-width:420px">
+    <h3 id="lgTitle">&#128722; Log Purchase</h3>
+    <input type="hidden" id="lgDesc">
+    <input type="hidden" id="lgCat">
+    <div class="form-grid">
+      <div>
+        <label>Date</label>
+        <input type="date" id="lgDate">
+      </div>
+      <div>
+        <label>Quantity</label>
+        <input type="number" id="lgQty" min="0" step="any" placeholder="e.g. 2">
+      </div>
+      <div>
+        <label>Unit price</label>
+        <input type="number" id="lgUnit" min="0" step="any" placeholder="0.00">
+      </div>
+      <div>
+        <label>Total</label>
+        <input type="number" id="lgTotal" min="0.01" step="any" placeholder="auto from qty &times; unit">
+      </div>
+      <div class="full">
+        <label>Payment method</label>
+        <select id="lgMethod"></select>
+        <input type="text" id="lgMethodOther" placeholder="Specify method, e.g. POS" style="display:none;margin-top:6px" maxlength="40">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal('logModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmLog()">&#10003; Log Purchase</button>
+    </div>
+  </div>
+</div>
+
+<!-- Batch pay modal -->
+<div class="modal-bg" id="batchModal">
+  <div class="modal" style="max-width:440px">
+    <h3>&#128184; Pay Selected Payees</h3>
+    <div id="bSummary" style="max-height:200px;overflow:auto;margin-bottom:12px"></div>
+    <div class="form-grid">
+      <div>
+        <label>Date paid</label>
+        <input type="date" id="bDate">
+      </div>
+      <div>
+        <label>Payment method</label>
+        <select id="bMethod"></select>
+        <input type="text" id="bMethodOther" placeholder="Specify, e.g. POS" style="display:none;margin-top:6px" maxlength="40">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal('batchModal')">Cancel</button>
+      <button class="btn btn-primary" id="bConfirmBtn" onclick="confirmBatchPay()">&#10003; Record Payments</button>
+    </div>
+  </div>
+</div>
+
+<!-- Wallet modal -->
+<div class="modal-bg" id="walletModal">
+  <div class="modal">
+    <h3>&#128176; Wallet</h3>
+    <div id="walletSummary"></div>
+    <div class="form-grid" style="margin-top:14px">
+      <div>
+        <label>Amount to add</label>
+        <input type="number" id="wAmt" step="0.01" min="0.01" placeholder="0.00">
+      </div>
+      <div>
+        <label>Date</label>
+        <input type="date" id="wDate">
+      </div>
+      <div class="full">
+        <label>Note (optional)</label>
+        <input type="text" id="wNote" placeholder="e.g. Starting balance, salary top-up" maxlength="80">
+      </div>
+    </div>
+    <div style="text-align:right;margin-top:12px">
+      <button class="btn btn-primary" onclick="addFunding()">&#10133; Add Funds</button>
+    </div>
+    <h3 style="margin-top:20px;font-size:14px">Funding history</h3>
+    <div id="fundList" style="max-height:200px;overflow:auto"></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal('walletModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import mapping modal -->
+<div class="modal-bg" id="importModal">
+  <div class="modal" style="max-width:560px">
+    <h3 id="importTitle">Import</h3>
+    <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px">Match each field to a column from your file. I've guessed where I could &mdash; adjust if needed.</p>
+    <div id="importMap"></div>
+    <div id="importPreview" style="margin-top:14px;font-size:12px;overflow-x:auto"></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal('importModal')">Cancel</button>
+      <button class="btn btn-primary" id="importConfirmBtn" onclick="confirmImport()">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- Items viewer modal -->
+<div class="modal-bg" id="itemsModal">
+  <div class="modal" style="max-width:540px">
+    <h3 id="itemsModalTitle">&#129534; Items</h3>
+    <div id="itemsModalBody" style="overflow-x:auto"></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal('itemsModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Price history modal -->
+<div class="modal-bg" id="priceModal">
+  <div class="modal" style="max-width:560px">
+    <h3>&#128200; Price History</h3>
+    <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Every item you've logged, with unit prices across months. Click an item to see its full history.</p>
+    <input type="text" id="priceSearch" placeholder="&#128269; Search items, e.g. eggs" oninput="renderPrices(this.value)" style="margin-bottom:12px">
+    <div id="priceBody" style="max-height:380px;overflow:auto"></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal('priceModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="importFile" accept=".csv,.txt,.xlsx,.xls" style="display:none">
+
+<div class="toast" id="toast"></div>
+
+<script>
+const LS_KEY = 'pet_data_v1';
+
+// ---------- Nigerian bank directory (from UPDATED BANK CODES.xlsx; codes zero-padded to 6 digits) ----------
+const BANKS = [
+["9 Payment Service Bank","120001"],["AB Microfinance bank","090270"],["ABBEY MORTGAGE BANK","070010"],["Above Only Microfinance bank","090260"],
+["ABU Microfinance bank","090197"],["Abucoop Microfinance Bank","090424"],["Access Bank","000014"],["Access Bank (Diamond)","000005"],
+["Access Yelo & Beta","100052"],["AccessMobile","100013"],["ACCION MFB","090134"],["Addosser MFBB","090160"],
+["Adeyemi College Staff Microfinance bank","090268"],["AG MORTGAGE BANK PLC","100028"],["AL-BARKAH MFB","090133"],["Alekun Microfinance bank","090259"],
+["Alhayat MFB","090277"],["ALLWORKERS MFB","090131"],["Alphakapital MFB","090169"],["AMML MFB","090116"],
+["Amju MFB","090180"],["APEKS Microfinance Bank","090143"],["Arise MFB","090282"],["ASOSavings","090001"],
+["Astrapolis MFB","090172"],["Auchi Microfinance bank","090264"],["Baines Credit MFB","090188"],["Banex MFB","090425"],
+["BC Kash MFB","090127"],["BLUEWHALES MFB","090431"],["Boctrust Microfinance Bank","090117"],["BONGHE MFB","090319"],
+["Bosak MFB","090176"],["Bowen MFB","090148"],["Brent Mortgage Bank","070015"],["Brethren MFB","090293"],
+["Bridgeway MFB","090363"],["CAPSTONE MFB","090445"],["Carbon","100026"],["Cellulant","100005"],
+["CEMCS MFB","090154"],["Chanelle MFB","090397"],["Changan RTS MFB","090470"],["CHERISH MFB","090440"],
+["CHIBUEZE MFB","090416"],["Chikum Microfinance Bank","090141"],["CIT Microfinance Bank","090144"],["Citi Bank","000009"],
+["CONSUMER MFB","090130"],["Contec Global","100032"],["COOP Mortgage Bank","070021"],["Coronation","060001"],
+["Covenant MFB","070006"],["Credit Afrique MFB","090159"],["CROSS RIVER MFB","090429"],["CRUTECH MFB","090414"],
+["Daylight Microfinance Bank","090167"],["e-BARCs MFB","090156"],["Eartholeum","100021"],["ECOBANK","000010"],
+["Ecobank Xpress Account","100008"],["EdFin MFB","090310"],["Ekondo MFB","090097"],["Emeralds MFB","090273"],
+["EmpireTrust Microfinance bank","090114"],["Enterprise Bank","000019"],["Esan MFB","090189"],["Eso-E Microfinance Bank","090166"],
+["eTranzact","100006"],["Eyowo","090328"],["Fame MFB","090330"],["FAST MFB","090179"],
+["FBN Morgages Limited","090107"],["FBNMobile","100014"],["FBNQuest MERCHANT BANK","060002"],["FCMB","000003"],
+["FCMB Easy Account","100031"],["FET","100001"],["FFS Microfinance Bank","090153"],["Fidelity Bank","000007"],
+["Fidelity Mobile","100019"],["FidFund MFB","090126"],["FinaTrust Microfinance Bank","090111"],["First Bank","000016"],
+["First Generation Mortgage Bank","070014"],["First Multiple MFB","090163"],["First Royal Microfinance Bank","090164"],["Fortis Microfinance Bank","070002"],
+["FortisMobile","100016"],["FSDH","400001"],["Full range MFB","090145"],["FUTMINNA MFB","090438"],
+["FUTO MFB","090158"],["Gashua Microfinance Bank","090168"],["GATEWAY MORTGAGE BANK","070009"],["GIGINYA MFB","090411"],
+["GIWA MICROFINANCE BANK","090441"],["GLOBUS Bank","000027"],["Glory MFB","090278"],["GoMoney","100022"],
+["GOWANS MFB","090122"],["GreenBank MFB","090178"],["Greenville Microfinance bank","090269"],["GREENWICH Merchant Bank","060004"],
+["Grooming Microfinance bank","090195"],["GTBank","000013"],["GTMobile","100009"],["Hackman Microfinance Bank","090147"],
+["Haggai Mortgage Bank","070017"],["HASAL MFB","090121"],["Hedonmark","100017"],["Heritage","000020"],
+["HIGHLAND MFB","090418"],["HighStreet MFB","090175"],["Hope PSB","120002"],["IBILE Microfinance Bank","090118"],
+["Ikire MFB","090279"],["ILORIN MFB","090350"],["Imo Microfinance bank","090258"],["Imperial Homes Mortgage Bank","100024"],
+["Infinity MFB","090157"],["Infinity trust Mortgage Bank","070016"],["Innovectives Kesh","100029"],["Insight MFB","090434"],
+["Intellifin","100027"],["IRL Microfinance Bank","090149"],["Izon Microfinance Bank","090421"],["JAIZ Bank","000006"],
+["JubileeLife","090003"],["KCMB MFB","090191"],["Kegow","100015"],["Keystone Bank","000002"],
+["KREDI MONEY MFB","090380"],["Kuda Microfinance Bank","090267"],["KWASU MFB","090450"],["La Fayette Microfinance Bank","090155"],
+["LANDGOLD MFB","090422"],["Lapo MFB","090177"],["Lavender Microfinance bank","090271"],["LBIC Mortgage Bank","070012"],
+["LETSHEGO MFB","090420"],["LINKS MFB","090435"],["LOTUS BANK","000029"],["Lovonus Microfinance bank","090265"],
+["Mainstreet MFB","090171"],["Malachy MFB","090174"],["MAUTECH MFB","090423"],["Megapraise Microfinance Bank","090280"],
+["Memphis MFB","090432"],["Meridian MFB","090275"],["Microcred Microfinance Bank","090136"],["MINT-FINEX MFB","090281"],
+["Mkudi","100011"],["MoneyBox","100020"],["MONEYTRUST MFB","090129"],["Moniepoint/Rolez Microfinance Bank","090405"],
+["Mutual Benefits MFB","090190"],["Mutual Trust Microfinance Bank","090151"],["Nargata MFB","090152"],["Navy Microfinance bank","090263"],
+["Ndiorah MFB","090128"],["New Prudential Bank","090108"],["Newdawn Microfinance bank","090205"],["NICE MFB","090459"],
+["NIRSAL National microfinance bank","090194"],["NOVA MB","060003"],["NPF MicroFinance Bank","070001"],["OakLand MFB","090437"],
+["OHAFIA MFB","090119"],["Okpoga MFB","090161"],["Olabisi Onabanjo university Microfinance bank","090272"],["Omoluabi Mortgage Bank Plc","070007"],
+["ORITABASORUN MFB","090460"],["OSPOLY MFB","090456"],["Paga","100002"],["PAGE FINANCIALS","070008"],
+["PalmPay","100033"],["Parallex","000030"],["PARKWAY MFB","090390"],["Parkway-ReadyCash","100003"],
+["PayAttitude Online","110001"],["Paycom (Opay)","100004"],["PEACE MFB","090402"],["Pecan Trust Microfinance Bank","090137"],
+["Pennywise Microfinance bank","090196"],["Personal Trust Microfinance Bank","090135"],["Petra Microfinance Bank","090165"],["PLATINUM MORTGAGE BANK","070013"],
+["POLARIS BANK","000008"],["Prestige Microfinance bank","090274"],["Providus Bank","000023"],["QuickFund Microfinance bank","090261"],
+["Rahama MFB","090170"],["Rand Merchant Bank","000024"],["Refuge Mortgage Bank","070011"],["REGENT MFB","090125"],
+["Reliance MFB","090173"],["Renmoney microfinance bank","090198"],["RICHWAY MFB","090132"],["RIGO MFB","090433"],
+["Royal Exchange Microfinance Bank","090138"],["Rubies MFB","090175"],["Safe Haven MFB","090286"],["SAFEGATE MFB","090485"],
+["SafeTrust","090006"],["Sagamu Microfinance Bank","090140"],["Seed Capital Microfinance Bank","090112"],["SmartCash PSB","120004"],
+["Sparkle","090325"],["Spectrum MFB","090436"],["Stanbic IBTC @ease Wallet","100007"],["StanbicIBTC Bank","000012"],
+["StandardChartered","000021"],["Stanford MFB","090162"],["STB Mortgage Bank","070022"],["Stellas Microfinance bank","090262"],
+["Sterling Bank","000001"],["STOCKCORP MFB","090340"],["SUNBEAM MFB","090302"],["SUNTRUST BANK","000022"],
+["SUPPORT MFB","090446"],["Taj Bank","000026"],["TANGERINE MONEY","090426"],["TagPay","100023"],
+["TCF","090115"],["TeasyMobile","100010"],["Titan Trust Bank","000025"],
+["Trident Microfinance Bank","090146"],["Trustbond","090005"],["UBA","000004"],["Uniben Microfinance bank","090266"],
+["UNIBADAN MFB","090461"],["Unical MFB","090193"],["UNIILORIN MFB","090341"],["Union Bank","000018"],
+["Unity Bank","000011"],["Verite Microfinance Bank","090123"],["VFD MICROFINANCE BANK","999999"],["Virtue MFB","090150"],
+["Visa Microfinance Bank","090139"],["VTNetworks","100012"],["Wema Bank","000017"],["WETLAND MFB","090120"],
+["XSLNCE Microfinance Bank","090124"],["Yes MFB","090142"],["Zenith Bank","000015"],["ZenithMobile","100018"],
+["Zinternet - KongaPay","100025"]
+];
+const BANK_ALIASES = {
+  'unitedbankforafrica':'UBA', 'unitedbankofafrica':'UBA',
+  'guarantytrustbank':'GTBank', 'guarantytrust':'GTBank', 'gtb':'GTBank', 'gt':'GTBank',
+  'firstbankofnigeria':'First Bank', 'firstbanknigeria':'First Bank', 'fbn':'First Bank',
+  'opay':'Paycom (Opay)', 'opaydigitallimitedservice':'Paycom (Opay)', 'opaydigitalservicelimited':'Paycom (Opay)', 'paycom':'Paycom (Opay)',
+  'moniepoint':'Moniepoint/Rolez Microfinance Bank', 'moniepointmfb':'Moniepoint/Rolez Microfinance Bank',
+  'stanbic':'StanbicIBTC Bank', 'stanbicibtc':'StanbicIBTC Bank',
+  'kuda':'Kuda Microfinance Bank', 'polaris':'POLARIS BANK', 'zenith':'Zenith Bank',
+  'ecobanknigeria':'ECOBANK', 'diamondbank':'Access Bank (Diamond)', 'standardchartered':'StandardChartered',
+  'providus':'Providus Bank', 'sterling':'Sterling Bank', 'fidelity':'Fidelity Bank',
+  'wema':'Wema Bank', 'union':'Union Bank', 'keystone':'Keystone Bank', 'heritagebank':'Heritage'
+};
+function normBank(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function padCode(c){ const d = String(c==null?'':c).replace(/\D/g,''); return (d && d.length<=6) ? d.padStart(6,'0') : ''; }
+function findBank(name){
+  const q = normBank(name);
+  if(!q) return null;
+  if(BANK_ALIASES[q]){ const a = BANK_ALIASES[q]; return BANKS.find(b=>b[0]===a) || null; }
+  let hit = BANKS.find(b=>normBank(b[0])===q);
+  if(hit) return hit;
+  const cands = BANKS.filter(b=>{ const n = normBank(b[0]); return n.length>=3 && (n.includes(q) || q.includes(n)); });
+  if(cands.length) return cands.sort((a,b)=>Math.abs(normBank(a[0]).length-q.length) - Math.abs(normBank(b[0]).length-q.length))[0];
+  return null;
+}
+
+let state = load();
+let viewMonth = new Date(); viewMonth.setDate(1);
+
+function defaults(){
+  return {
+    expenses: [],
+    categories: [
+      {id:'food',   name:'Food & Groceries', color:'#f59e0b'},
+      {id:'transport', name:'Transport',     color:'#3b82f6'},
+      {id:'housing', name:'Rent & Utilities',color:'#8b5cf6'},
+      {id:'health', name:'Health',           color:'#ef4444'},
+      {id:'meds',   name:'Drugs/Medication', color:'#14b8a6'},
+      {id:'personalcare', name:'Personal Care', color:'#fb7185'},
+      {id:'fun',    name:'Entertainment',    color:'#ec4899'},
+      {id:'shopping',name:'Shopping',        color:'#10b981'},
+      {id:'airtime',name:'Airtime & Data',   color:'#06b6d4'},
+      {id:'electricity',name:'Electricity Bill',color:'#eab308'},
+      {id:'fuel',   name:'Fuel',             color:'#f97316'},
+      {id:'dogfood',name:'Dog Food',         color:'#a16207'},
+      {id:'doggroom',name:'Dog Grooming',    color:'#d946ef'},
+      {id:'vet',    name:'Vet',              color:'#0ea5e9'},
+      {id:'payments',name:'Payee',            color:'#6366f1'},
+      {id:'other',  name:'Other',            color:'#6b7487'}
+    ],
+    grocs: [],
+    payees: [],
+    wallet: { fundings: [] },
+    methods: [
+      'Cash',
+      'Card – GT Card','Card – Providus Card','Card – Loyalty Card',
+      'Transfer – GTBank','Transfer – Providus Bank','Transfer – First Bank','Transfer – Liberty Pay','Transfer – PayBox360',
+      'Bank transfer','Mobile money','Other'
+    ],
+    settings: { currency:'₦', budget:0 }
+  };
+}
+function load(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(raw){
+      const d = JSON.parse(raw);
+      if(d && d.expenses && d.categories){
+        // migrate older saves that predate payees/wallet
+        d.payees = d.payees || [];
+        d.wallet = d.wallet || { fundings: [] };
+        if(!d.categories.some(c=>c.id==='payments')) d.categories.push({id:'payments',name:'Payee',color:'#6366f1'});
+        const payCat = d.categories.find(c=>c.id==='payments');
+        if(payCat && payCat.name==='Monthly Payments') payCat.name = 'Payee';
+        if(payCat && payCat.color==='#64748b') payCat.color = '#6366f1'; // was near-identical to Other's grey
+        if(!d.methods) d.methods = defaults().methods;
+        if(!d.categories.some(c=>c.id==='meds')){
+          const hi = d.categories.findIndex(c=>c.id==='health');
+          d.categories.splice(hi>-1 ? hi+1 : d.categories.length, 0, {id:'meds',name:'Drugs/Medication',color:'#14b8a6'});
+        }
+        [
+          {id:'electricity',name:'Electricity Bill',color:'#eab308'},
+          {id:'fuel',   name:'Fuel',         color:'#f97316'},
+          {id:'dogfood',name:'Dog Food',     color:'#a16207'},
+          {id:'doggroom',name:'Dog Grooming',color:'#d946ef'},
+          {id:'vet',    name:'Vet',          color:'#0ea5e9'},
+          {id:'personalcare',name:'Personal Care',color:'#fb7185'}
+        ].forEach(nc=>{
+          if(d.categories.some(c=>c.id===nc.id)) return;
+          const pi = d.categories.findIndex(c=>c.id==='payments');
+          d.categories.splice(pi>-1 ? pi : d.categories.length, 0, nc);
+        });
+        d.grocs = d.grocs || [];
+        if(!d.settings.bankCodesV1){
+          (d.payees||[]).forEach(p=>{
+            const bk = findBank(p.bank);
+            if(bk){ p.bank = bk[0]; p.bankCode = bk[1]; }
+            else if(p.bankCode && !/^\d{6}$/.test(p.bankCode)){ p.bankCode = padCode(p.bankCode) || p.bankCode; }
+          });
+          d.settings.bankCodesV1 = true;
+        }
+        return d;
+      }
+    }
+  }catch(e){}
+  return defaults();
+}
+function persist(){
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+  catch(e){ toast('⚠️ Storage is full — try removing large attachments'); }
+}
+
+// ---------- helpers ----------
+const $ = id => document.getElementById(id);
+function fmt(n){
+  return state.settings.currency + Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function monthKey(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function keyOfDateStr(s){ return s.slice(0,7); }
+function catById(id){ return state.categories.find(c=>c.id===id) || {id:'?',name:'(deleted)',color:'#9ca3af'}; }
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+// ---------- month nav ----------
+function shiftMonth(n){ viewMonth.setMonth(viewMonth.getMonth()+n); render(); }
+
+// ---------- expense CRUD ----------
+function saveExpense(e){
+  e.preventDefault();
+  const id = $('fId').value;
+  const orig = id ? state.expenses.find(x=>x.id===id) : null;
+  const exp = {
+    id: id || ('e'+Date.now()+Math.random().toString(36).slice(2,6)),
+    amount: parseFloat($('fAmt').value),
+    date: $('fDate').value,
+    cat: $('fCat').value,
+    method: methodValue('fMethod','fMethodOther'),
+    note: $('fNote').value.trim()
+  };
+  if(orig && orig.payeeId) exp.payeeId = orig.payeeId;
+  if(exp.cat==='other'){
+    const lbl = $('fCatOther').value.trim();
+    if(lbl) exp.catLabel = lbl;
+  }
+  if(pendingFile) exp.file = pendingFile;
+  const cleanItems = formItems.filter(it=>String(it.desc||'').trim() || parseNum(it.total));
+  if(cleanItems.length) exp.items = cleanItems;
+  if(!exp.amount || exp.amount <= 0){ toast('Enter a valid amount'); return false; }
+  if(id){
+    const i = state.expenses.findIndex(x=>x.id===id);
+    if(i>-1) state.expenses[i] = exp;
+    toast('Expense updated');
+  }else{
+    state.expenses.push(exp);
+    toast('Expense added');
+  }
+  persist();
+  // jump the view to the month of the saved expense so the user sees it
+  viewMonth = new Date(exp.date.slice(0,7)+'-01T00:00:00');
+  resetForm();
+  render();
+  return false;
+}
+function editExpense(id){
+  const x = state.expenses.find(e=>e.id===id); if(!x) return;
+  $('fId').value = x.id; $('fAmt').value = x.amount; $('fDate').value = x.date;
+  $('fCat').value = x.cat; $('fNote').value = x.note;
+  $('fCatOther').value = x.catLabel || '';
+  toggleCatOther();
+  if(state.methods.includes(x.method)){
+    $('fMethod').value = x.method;
+    $('fMethodOther').value = '';
+  }else{
+    // custom method entered via "Other"
+    if(state.methods.includes('Other')) $('fMethod').value = 'Other';
+    $('fMethodOther').value = x.method==='Other' ? '' : x.method;
+  }
+  toggleOther('fMethod','fMethodOther');
+  pendingFile = x.file || null; $('fFile').value = ''; updateFileInfo();
+  formItems = (x.items||[]).map(it=>({...it})); renderItemRows();
+  $('submitBtn').innerHTML = '&#128190; Save Changes';
+  $('cancelEdit').style.display = 'inline-flex';
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function deleteExpense(id){
+  if(!confirm('Delete this expense?')) return;
+  state.expenses = state.expenses.filter(e=>e.id!==id);
+  persist(); render(); toast('Expense deleted');
+}
+function resetForm(){
+  $('expForm').reset();
+  $('fId').value=''; $('fDate').value = todayStr();
+  pendingFile = null; updateFileInfo();
+  formItems = []; renderItemRows();
+  clearOther('fMethod','fMethodOther');
+  $('fCatOther').value = ''; toggleCatOther();
+  $('submitBtn').innerHTML = '&#10133; Add Expense';
+  $('cancelEdit').style.display = 'none';
+}
+
+// ---------- attachments ----------
+let pendingFile = null;
+$('fFile').addEventListener('change', e=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  if(f.size > 1.5*1024*1024){ toast('File too large — max 1.5 MB'); e.target.value=''; return; }
+  const r = new FileReader();
+  r.onload = ()=>{ pendingFile = {name:f.name, type:f.type, data:r.result}; updateFileInfo(); };
+  r.readAsDataURL(f);
+});
+function updateFileInfo(){
+  $('fileInfo').innerHTML = pendingFile
+    ? `&#128206; ${esc(pendingFile.name)} <button type="button" class="btn btn-danger btn-sm" onclick="removePendingFile()" style="margin-left:6px">&#10005; remove</button>`
+    : '';
+}
+function removePendingFile(){ pendingFile = null; $('fFile').value=''; updateFileInfo(); }
+function openAttachment(id){
+  const x = state.expenses.find(e=>e.id===id); if(!x || !x.file) return;
+  const b64 = x.file.data.split(',')[1];
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+  const type = x.file.type || 'application/octet-stream';
+  const url = URL.createObjectURL(new Blob([arr],{type}));
+  if(type.startsWith('image/') || type==='application/pdf' || type.startsWith('text/')){
+    window.open(url);
+  }else{
+    const a = document.createElement('a'); a.href = url; a.download = x.file.name; a.click();
+  }
+  setTimeout(()=>URL.revokeObjectURL(url), 60000);
+}
+
+// ---------- monthly payees ----------
+$('bankOptions').innerHTML = BANKS.map(b=>`<option value="${esc(b[0])}">`).join('');
+$('pBank').addEventListener('change', ()=>{
+  const bk = findBank($('pBank').value);
+  if(bk){ $('pBank').value = bk[0]; $('pBankCode').value = bk[1]; }
+});
+function exportPayeesCSV(){
+  let rows = selectedUnpaid();
+  const scope = rows.length ? 'ticked' : 'all';
+  if(!rows.length) rows = state.payees;
+  if(!rows.length){ toast('No payees to export yet'); return; }
+  const clean = s => String(s||'').replace(/[,"\r\n]+/g,' ').trim();
+  let issues = 0;
+  const lines = ['account_name,bank_name,bank_code,account_number,amount,narration,is_beneficiary,save_beneficiary,remove_beneficiary,is_recurring,'];
+  rows.forEach(p=>{
+    const bk = findBank(p.bank);
+    const bname = bk ? bk[0] : clean(p.bank);
+    const code = /^\d{6}$/.test(p.bankCode||'') ? p.bankCode : (bk ? bk[1] : padCode(p.bankCode));
+    const acct = String(p.acct||'').replace(/\D/g,'');
+    if(!code || !acct || !p.amount) issues++;
+    lines.push([
+      clean(p.name).toUpperCase(), bname, code, acct, p.amount||0,
+      clean(p.desc||'MONTHLY PAYMENT').toUpperCase(),
+      'FALSE','FALSE','FALSE','FALSE'
+    ].join(',')+',');
+  });
+  const blob = new Blob([lines.join('\r\n')+'\r\n'], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'payee-payment-'+todayStr()+'.csv';
+  a.click(); URL.revokeObjectURL(a.href);
+  toast('Exported '+rows.length+' '+scope+' payee'+(rows.length===1?'':'s')+(issues?' · ⚠️ '+issues+' missing bank code, account no. or amount — fix before paying':''));
+}
+function openPayeeModal(id){
+  const p = id ? state.payees.find(x=>x.id===id) : null;
+  $('payeeTitle').textContent = p ? 'Edit Payee' : 'Add Payee';
+  $('pId').value = p ? p.id : '';
+  $('pName').value = p ? p.name : '';
+  $('pBank').value = p ? (p.bank||'') : '';
+  $('pBankCode').value = p ? (p.bankCode||'') : '';
+  $('pAcct').value = p ? (p.acct||'') : '';
+  $('pAmt').value = p ? p.amount : '';
+  $('pDesc').value = p ? (p.desc||'') : '';
+  const descs = [...new Set(state.payees.map(x=>String(x.desc||'').trim()).filter(Boolean))].sort();
+  $('descOptions').innerHTML = descs.map(d=>`<option value="${esc(d)}">`).join('');
+  $('pCat').innerHTML = state.categories.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  $('pCat').value = (p && state.categories.some(c=>c.id===p.cat)) ? p.cat
+                  : (state.categories.some(c=>c.id==='payments') ? 'payments' : state.categories[0].id);
+  $('payeeModal').classList.add('open');
+}
+function savePayee(){
+  const name = $('pName').value.trim();
+  const amount = parseFloat($('pAmt').value);
+  if(!name){ toast('Enter the payee name'); return; }
+  if(!amount || amount <= 0){ toast('Enter a valid monthly amount'); return; }
+  const id = $('pId').value;
+  const p = {
+    id: id || ('p'+Date.now()+Math.random().toString(36).slice(2,6)),
+    name,
+    bank: $('pBank').value.trim(),
+    bankCode: padCode($('pBankCode').value) || $('pBankCode').value.trim(),
+    acct: $('pAcct').value.trim(),
+    amount,
+    desc: $('pDesc').value.trim(),
+    cat: $('pCat').value
+  };
+  if(id){
+    const i = state.payees.findIndex(x=>x.id===id);
+    if(i>-1) state.payees[i] = p;
+  }else{
+    state.payees.push(p);
+  }
+  persist(); closeModal('payeeModal'); render();
+  toast(id ? 'Payee updated' : 'Payee added');
+}
+function deletePayee(id){
+  const p = state.payees.find(x=>x.id===id); if(!p) return;
+  if(!confirm('Remove '+p.name+' from your payees? Past payments stay in your expense history.')) return;
+  state.payees = state.payees.filter(x=>x.id!==id);
+  persist(); render(); toast('Payee removed');
+}
+function payPayee(id){
+  const p = state.payees.find(x=>x.id===id); if(!p) return;
+  const mk = monthKey(viewMonth);
+  $('payTitle').innerHTML = 'Record Payment &mdash; ' + esc(p.name);
+  $('payPayeeId').value = p.id;
+  $('payAmt').value = p.amount;
+  $('payDate').value = mk === monthKey(new Date()) ? todayStr() : mk+'-01';
+  $('payMethod').innerHTML = methodOptionsHtml();
+  if(state.methods.includes('Bank transfer')) $('payMethod').value = 'Bank transfer';
+  clearOther('payMethod','payMethodOther');
+  $('payModal').classList.add('open');
+}
+function confirmPay(){
+  const p = state.payees.find(x=>x.id===$('payPayeeId').value); if(!p) return;
+  const amount = parseFloat($('payAmt').value);
+  const date = $('payDate').value;
+  if(!amount || amount <= 0){ toast('Enter a valid amount'); return; }
+  if(!date){ toast('Pick the date you paid'); return; }
+  state.expenses.push({
+    id: 'e'+Date.now()+Math.random().toString(36).slice(2,6),
+    amount,
+    date,
+    cat: state.categories.some(c=>c.id===p.cat) ? p.cat : 'payments',
+    method: methodValue('payMethod','payMethodOther') || 'Bank transfer',
+    note: payNoteFor(date, p),
+    payeeId: p.id
+  });
+  persist(); closeModal('payModal'); render();
+  toast('Payment to '+p.name+' recorded');
+}
+function renderPayees(mk){
+  if(!state.payees.length){
+    $('payeeBody').innerHTML = `<tr><td colspan="10"><div class="empty"><div class="big">&#128101;</div>No monthly payees yet.<br>Add the people you pay every month — rent, staff, subscriptions.</div></td></tr>`;
+    $('selAllPayees').checked = false;
+    updatePaySelBtn();
+    return;
+  }
+  const paidTo = p => state.expenses.filter(e=>e.payeeId===p.id).reduce((s,e)=>s+e.amount,0);
+  const isPaid = p => state.expenses.find(e=>e.payeeId===p.id && keyOfDateStr(e.date)===mk);
+  $('payeeBody').innerHTML = state.payees.map(p=>{
+    const paid = isPaid(p);
+    const status = paid
+      ? `<span class="chip" style="background:#e7f6ec;color:var(--ok)">&#10003; Paid ${new Date(paid.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'})}</span>
+         <button class="btn btn-ghost btn-sm" onclick="undoPayment('${p.id}')" title="Undo — remove this month's payment">&#8630; Undo</button>`
+      : `<button class="btn btn-primary btn-sm" onclick="payPayee('${p.id}')">Pay ${fmt(p.amount)}</button>`;
+    return `<tr>
+      <td>${paid ? '' : `<input type="checkbox" ${payeeSel.has(p.id)?'checked':''} onchange="togglePayeeSel('${p.id}',this.checked)">`}</td>
+      <td style="font-weight:600;white-space:nowrap">${esc(p.name)}</td>
+      <td class="note-txt">${esc(p.desc)||'—'}</td>
+      <td class="note-txt">${esc(p.bank)||'—'}</td>
+      <td class="note-txt">${esc(p.bankCode)||'—'}</td>
+      <td class="note-txt">${esc(p.acct)||'—'}</td>
+      <td class="amt" style="text-align:right">${fmt(p.amount)}</td>
+      <td class="amt" style="text-align:right">${fmt(paidTo(p))}</td>
+      <td style="white-space:nowrap">${status}</td>
+      <td style="white-space:nowrap;text-align:right">
+        <button class="btn btn-ghost btn-sm" onclick="openPayeeModal('${p.id}')">&#9998; Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deletePayee('${p.id}')">&#128465;&#65039;</button>
+      </td>
+    </tr>`;
+  }).join('') + `
+    <tr style="font-weight:700;background:#fafbfe">
+      <td colspan="6" style="text-align:right">Total</td>
+      <td class="amt" style="text-align:right">${fmt(state.payees.reduce((s,p)=>s+p.amount,0))}</td>
+      <td class="amt" style="text-align:right">${fmt(state.payees.reduce((s,p)=>s+paidTo(p),0))}</td>
+      <td colspan="2"></td>
+    </tr>`;
+  const unpaid = state.payees.filter(p=>!isPaid(p));
+  $('selAllPayees').checked = unpaid.length > 0 && unpaid.every(p=>payeeSel.has(p.id));
+  updatePaySelBtn();
+}
+
+// ---------- batch pay & undo ----------
+let payeeSel = new Set();
+function payNoteFor(date, p){
+  const mn = new Date(date+'T00:00:00').toLocaleDateString(undefined,{month:'long',year:'numeric'});
+  return 'Payee for '+mn+' – '+p.name+(p.desc?' ('+p.desc+')':'');
+}
+function selectedUnpaid(){
+  const mk = monthKey(viewMonth);
+  return state.payees.filter(p=>
+    payeeSel.has(p.id) && !state.expenses.some(e=>e.payeeId===p.id && keyOfDateStr(e.date)===mk)
+  );
+}
+function updatePaySelBtn(){
+  const sel = selectedUnpaid();
+  const b = $('paySelBtn');
+  if(sel.length){
+    b.style.display = 'inline-flex';
+    b.innerHTML = '&#128184; Pay selected ('+sel.length+') &mdash; '+fmt(sel.reduce((s,p)=>s+p.amount,0));
+  }else{
+    b.style.display = 'none';
+  }
+}
+function togglePayeeSel(id, on){
+  if(on) payeeSel.add(id); else payeeSel.delete(id);
+  renderPayees(monthKey(viewMonth));
+}
+function toggleAllPayees(on){
+  const mk = monthKey(viewMonth);
+  state.payees.forEach(p=>{
+    const paid = state.expenses.some(e=>e.payeeId===p.id && keyOfDateStr(e.date)===mk);
+    if(paid) return;
+    if(on) payeeSel.add(p.id); else payeeSel.delete(p.id);
+  });
+  renderPayees(mk);
+}
+function openBatchPay(){
+  const sel = selectedUnpaid();
+  if(!sel.length){ toast('Tick the payees you want to pay first'); return; }
+  const total = sel.reduce((s,p)=>s+p.amount,0);
+  $('bSummary').innerHTML = sel.map(p=>`
+    <div class="cat-row">
+      <span class="nm">${esc(p.name)}${p.desc?' <span style="color:var(--muted);font-weight:400;font-size:12px">('+esc(p.desc)+')</span>':''}</span>
+      <span class="amt" style="font-size:13px">${fmt(p.amount)}</span>
+    </div>`).join('') + `
+    <div class="cat-row" style="border-bottom:none">
+      <span class="nm">Total &mdash; ${sel.length} payee${sel.length===1?'':'s'}</span>
+      <span class="amt" style="font-size:14px">${fmt(total)}</span>
+    </div>`;
+  const mk = monthKey(viewMonth);
+  $('bDate').value = mk === monthKey(new Date()) ? todayStr() : mk+'-01';
+  $('bMethod').innerHTML = methodOptionsHtml();
+  if(state.methods.includes('Bank transfer')) $('bMethod').value = 'Bank transfer';
+  clearOther('bMethod','bMethodOther');
+  $('bConfirmBtn').innerHTML = '&#10003; Record '+sel.length+' Payment'+(sel.length===1?'':'s');
+  $('batchModal').classList.add('open');
+}
+function confirmBatchPay(){
+  const sel = selectedUnpaid();
+  const date = $('bDate').value;
+  if(!date){ toast('Pick the date paid'); return; }
+  if(!sel.length){ closeModal('batchModal'); return; }
+  const method = methodValue('bMethod','bMethodOther') || 'Bank transfer';
+  sel.forEach(p=>{
+    state.expenses.push({
+      id: 'e'+Date.now()+Math.random().toString(36).slice(2,6),
+      amount: p.amount,
+      date,
+      cat: state.categories.some(c=>c.id===p.cat) ? p.cat : 'payments',
+      method,
+      note: payNoteFor(date, p),
+      payeeId: p.id
+    });
+    payeeSel.delete(p.id);
+  });
+  persist(); closeModal('batchModal'); render();
+  toast('Recorded '+sel.length+' payment'+(sel.length===1?'':'s')+' — '+fmt(sel.reduce((s,p)=>s+p.amount,0)));
+}
+function viewPayeeGroup(){
+  const mk = monthKey(viewMonth);
+  const pex = state.expenses.filter(e=>e.payeeId && keyOfDateStr(e.date)===mk).sort((a,b)=>a.date.localeCompare(b.date));
+  if(!pex.length) return;
+  const mn = viewMonth.toLocaleDateString(undefined,{month:'long',year:'numeric'});
+  const total = pex.reduce((s,e)=>s+e.amount,0);
+  $('itemsModalTitle').innerHTML = '&#128101; Payee payments &mdash; ' + mn;
+  $('itemsModalBody').innerHTML = `<table style="font-size:13px">
+    <thead><tr><th>Date</th><th>Payee</th><th>Method</th><th style="text-align:right">Amount</th><th></th></tr></thead>
+    <tbody>${pex.map(e=>{
+      const p = state.payees.find(x=>x.id===e.payeeId);
+      return `<tr>
+        <td style="white-space:nowrap">${new Date(e.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'})}</td>
+        <td style="font-weight:600">${esc(p?p.name:(e.note||'—'))}${p&&p.desc?` <span class="note-txt">(${esc(p.desc)})</span>`:''}</td>
+        <td class="note-txt">${esc(e.method)}</td>
+        <td class="amt" style="text-align:right">${fmt(e.amount)}</td>
+        <td style="text-align:right"><button class="btn btn-danger btn-sm" onclick="undoPayeeExp('${e.id}')" title="Undo this payment">&#8630; Undo</button></td>
+      </tr>`;
+    }).join('')}
+    <tr><td colspan="3" style="text-align:right;font-weight:700">Total</td><td class="amt" style="text-align:right">${fmt(total)}</td><td></td></tr>
+    </tbody></table>`;
+  $('itemsModal').classList.add('open');
+}
+function undoPayeeExp(id){
+  const e = state.expenses.find(x=>x.id===id); if(!e) return;
+  const p = state.payees.find(x=>x.id===e.payeeId);
+  if(!confirm('Undo the '+fmt(e.amount)+' payment to '+(p?p.name:'this payee')+'? The expense is deleted and your wallet balance restored.')) return;
+  state.expenses = state.expenses.filter(x=>x.id!==id);
+  persist(); render();
+  const mk = monthKey(viewMonth);
+  if(state.expenses.some(x=>x.payeeId && keyOfDateStr(x.date)===mk)) viewPayeeGroup();
+  else closeModal('itemsModal');
+  toast('Payment undone');
+}
+function undoPayment(id){
+  const p = state.payees.find(x=>x.id===id); if(!p) return;
+  const mk = monthKey(viewMonth);
+  const exp = state.expenses.find(e=>e.payeeId===id && keyOfDateStr(e.date)===mk);
+  if(!exp) return;
+  const when = new Date(exp.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'});
+  if(!confirm('Undo the '+fmt(exp.amount)+' payment to '+p.name+' recorded on '+when+'? The expense is deleted and your wallet balance restored.')) return;
+  state.expenses = state.expenses.filter(e=>e.id!==exp.id);
+  persist(); render();
+  toast('Payment to '+p.name+' undone');
+}
+
+// ---------- wallet ----------
+function walletFunded(){ return state.wallet.fundings.reduce((s,f)=>s+f.amount,0); }
+function walletBalance(){ return walletFunded() - state.expenses.reduce((s,e)=>s+e.amount,0); }
+function openWallet(){
+  $('wAmt').value=''; $('wNote').value=''; $('wDate').value = todayStr();
+  renderWallet();
+  $('walletModal').classList.add('open');
+}
+function renderWallet(){
+  const bal = walletBalance(), funded = walletFunded();
+  const col = bal < 0 ? 'var(--danger)' : 'var(--ok)';
+  $('walletSummary').innerHTML = `
+    <div style="background:var(--accent-soft);border-radius:12px;padding:14px 16px">
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Current balance</div>
+      <div style="font-size:26px;font-weight:800;color:${col}">${fmt(bal)}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">${fmt(funded)} funded &middot; ${fmt(funded-bal)} spent all-time</div>
+    </div>`;
+  const list = [...state.wallet.fundings].sort((a,b)=>b.date.localeCompare(a.date));
+  $('fundList').innerHTML = list.length ? list.map(f=>`
+    <div class="cat-row">
+      <div style="flex:1">
+        <div style="font-weight:600;font-size:13.5px">${fmt(f.amount)}</div>
+        <div style="font-size:12px;color:var(--muted)">${new Date(f.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})}${f.note?' &middot; '+esc(f.note):''}</div>
+      </div>
+      <button class="del" onclick="deleteFunding('${f.id}')" title="Remove">&#128465;&#65039;</button>
+    </div>`).join('')
+    : '<div class="empty" style="padding:16px">No funds added yet.</div>';
+}
+function addFunding(){
+  const amt = parseFloat($('wAmt').value);
+  if(!amt || amt <= 0){ toast('Enter a valid amount'); return; }
+  state.wallet.fundings.push({
+    id: 'w'+Date.now()+Math.random().toString(36).slice(2,6),
+    amount: amt,
+    date: $('wDate').value || todayStr(),
+    note: $('wNote').value.trim()
+  });
+  persist();
+  $('wAmt').value=''; $('wNote').value='';
+  renderWallet(); render(); toast('Wallet funded');
+}
+function deleteFunding(id){
+  if(!confirm('Remove this funding entry? Your balance will drop by its amount.')) return;
+  state.wallet.fundings = state.wallet.fundings.filter(f=>f.id!==id);
+  persist(); renderWallet(); render(); toast('Funding entry removed');
+}
+
+function closeModal(id){ $(id).classList.remove('open'); }
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+// ---------- payment methods (grouped "Group – Name") ----------
+const M_SEP = ' – ';
+const METHOD_OTHER_PAIRS = [['fMethod','fMethodOther'],['payMethod','payMethodOther'],['bMethod','bMethodOther'],['lgMethod','lgMethodOther']];
+function toggleOther(selId, otherId){
+  $(otherId).style.display = $(selId).value==='Other' ? 'block' : 'none';
+}
+function clearOther(selId, otherId){
+  $(otherId).value = '';
+  toggleOther(selId, otherId);
+}
+function methodValue(selId, otherId){
+  const v = $(selId).value;
+  if(v === 'Other'){
+    const t = $(otherId).value.trim();
+    return t || 'Other';
+  }
+  return v;
+}
+METHOD_OTHER_PAIRS.forEach(([s,o])=> $(s).addEventListener('change', ()=>toggleOther(s,o)));
+
+// "Other" category write-in on the expense form
+function toggleCatOther(){
+  $('fCatOther').style.display = $('fCat').value==='other' ? 'block' : 'none';
+}
+$('fCat').addEventListener('change', toggleCatOther);
+function methodOptionsHtml(){
+  let html = ''; const doneGroups = new Set();
+  state.methods.forEach(m=>{
+    const i = m.indexOf(M_SEP);
+    if(i === -1){
+      html += `<option value="${esc(m)}">${esc(m)}</option>`;
+    }else{
+      const g = m.slice(0,i);
+      if(doneGroups.has(g)) return;
+      doneGroups.add(g);
+      const subs = state.methods.filter(x=>x.startsWith(g+M_SEP));
+      html += `<optgroup label="${esc(g)}">` +
+        subs.map(s=>`<option value="${esc(s)}">${esc(s.slice(g.length+M_SEP.length))}</option>`).join('') +
+        '</optgroup>';
+    }
+  });
+  return html;
+}
+function renderMethodList(){
+  $('methodList').innerHTML = state.methods.map((m,i)=>`
+    <div class="cat-row">
+      <span class="nm" style="font-weight:${m.includes(M_SEP)?'400':'600'};padding-left:${m.includes(M_SEP)?'14px':'0'}">${esc(m)}</span>
+      <button class="del" onclick="removeMethod(${i})" title="Remove">&#128465;&#65039;</button>
+    </div>`).join('');
+}
+function addMethod(){
+  let name = $('newMethodName').value.trim().replace(/\s+-\s+/, M_SEP);
+  if(!name){ toast('Enter a payment method name'); return; }
+  if(state.methods.some(m=>m.toLowerCase()===name.toLowerCase())){ toast('That method already exists'); return; }
+  state.methods.push(name);
+  $('newMethodName').value = '';
+  persist(); renderMethodList(); render(); toast('Payment method added');
+}
+function removeMethod(i){
+  const m = state.methods[i]; if(m===undefined) return;
+  if(!confirm('Remove "'+m+'" from the payment method list? Past expenses keep it on record.')) return;
+  state.methods.splice(i,1);
+  persist(); renderMethodList(); render();
+}
+function parseNum(v){ const n = parseFloat(String(v==null?'':v).replace(/[^0-9.\-]/g,'')); return isNaN(n) ? 0 : n; }
+
+// ---------- expense line items ----------
+let formItems = [];
+function renderItemRows(){
+  $('itemsBox').style.display = formItems.length ? 'block' : 'none';
+  $('itemsBody').innerHTML = formItems.map((it,i)=>`
+    <tr>
+      <td style="color:var(--muted)">${i+1}</td>
+      <td><input type="text" value="${esc(it.desc)}" placeholder="e.g. 2 crates of eggs" oninput="updItem(${i},'desc',this.value)"></td>
+      <td><input type="number" value="${it.qty||''}" min="0" step="any" oninput="updItem(${i},'qty',this.value)"></td>
+      <td><input type="number" value="${it.unit||''}" min="0" step="any" oninput="updItem(${i},'unit',this.value)"></td>
+      <td><input type="number" value="${it.total||''}" min="0" step="any" id="itTotal${i}" oninput="updItem(${i},'total',this.value)"></td>
+      <td><button type="button" class="del" onclick="removeItemRow(${i})" title="Remove">&#10005;</button></td>
+    </tr>`).join('');
+  updateItemsSum();
+}
+function addItemRow(){ formItems.push({desc:'',qty:'',unit:'',total:''}); renderItemRows(); }
+function removeItemRow(i){ formItems.splice(i,1); renderItemRows(); }
+function updItem(i, field, val){
+  const it = formItems[i]; if(!it) return;
+  it[field] = field==='desc' ? val : val;
+  if(field==='qty' || field==='unit'){
+    const q = parseNum(it.qty), u = parseNum(it.unit);
+    if(q>0 && u>0){ it.total = +(q*u).toFixed(2); const el=$('itTotal'+i); if(el) el.value = it.total; }
+  }
+  updateItemsSum();
+}
+function itemsTotal(){ return formItems.reduce((s,it)=>s+parseNum(it.total),0); }
+function updateItemsSum(){ $('itemsSum').textContent = fmt(itemsTotal()); }
+function useItemsTotal(){ $('fAmt').value = itemsTotal().toFixed(2); toast('Amount set from items total'); }
+function viewItems(id){
+  const e = state.expenses.find(x=>x.id===id); if(!e || !e.items) return;
+  $('itemsModalTitle').innerHTML = '&#129534; ' + esc(e.note || catById(e.cat).name) + ' &mdash; ' + new Date(e.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
+  const sum = e.items.reduce((s,it)=>s+parseNum(it.total),0);
+  $('itemsModalBody').innerHTML = `<table style="font-size:13px">
+    <thead><tr><th>S/N</th><th>Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit price</th><th style="text-align:right">Total</th></tr></thead>
+    <tbody>${e.items.map((it,i)=>`<tr>
+      <td style="color:var(--muted)">${i+1}</td>
+      <td>${esc(it.desc)}</td>
+      <td style="text-align:right">${parseNum(it.qty)||'—'}</td>
+      <td style="text-align:right">${parseNum(it.unit)?fmt(it.unit):'—'}</td>
+      <td class="amt" style="text-align:right">${fmt(parseNum(it.total))}</td>
+    </tr>`).join('')}
+    <tr><td colspan="4" style="text-align:right;font-weight:700">Total</td><td class="amt" style="text-align:right">${fmt(sum)}</td></tr>
+    </tbody></table>`;
+  $('itemsModal').classList.add('open');
+}
+
+// ---------- tabular file import (CSV native, Excel via SheetJS) ----------
+let importCtx = null;
+function loadXLSX(){
+  return new Promise((res,rej)=>{
+    if(window.XLSX) return res();
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.onload = ()=>res(); s.onerror = ()=>rej(new Error('offline'));
+    document.head.appendChild(s);
+  });
+}
+function parseCSV(text){
+  const rows=[]; let row=[], cur='', inQ=false;
+  for(let i=0;i<text.length;i++){
+    const ch = text[i];
+    if(inQ){ if(ch==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else inQ=false; } else cur+=ch; }
+    else if(ch==='"') inQ = true;
+    else if(ch===','){ row.push(cur); cur=''; }
+    else if(ch==='\n' || ch==='\r'){ if(ch==='\r'&&text[i+1]==='\n') i++; row.push(cur); cur=''; if(row.some(c=>String(c).trim()!=='')) rows.push(row); row=[]; }
+    else cur+=ch;
+  }
+  row.push(cur); if(row.some(c=>String(c).trim()!=='')) rows.push(row);
+  return rows;
+}
+function importPayeesFile(){ startFilePick('payees'); }
+function importItemsFile(){ startFilePick('items'); }
+function importStatementFile(){ startFilePick('statement'); }
+function startFilePick(target){
+  $('importFile').dataset.target = target;
+  $('importFile').value = '';
+  $('importFile').click();
+}
+$('importFile').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return;
+  const target = e.target.dataset.target;
+  const ext = f.name.split('.').pop().toLowerCase();
+  if(ext==='csv' || ext==='txt'){
+    const r = new FileReader();
+    r.onload = ()=>{ openImportModal(target, parseCSV(r.result), f.name); };
+    r.readAsText(f);
+  }else{
+    loadXLSX().then(()=>{
+      const r = new FileReader();
+      r.onload = ()=>{
+        try{
+          const wb = XLSX.read(new Uint8Array(r.result), {type:'array'});
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:false, defval:''});
+          openImportModal(target, rows.filter(rw=>rw.some(c=>String(c).trim()!=='')), f.name);
+        }catch(err){ toast('Could not read that Excel file — try saving it as CSV'); }
+      };
+      r.readAsArrayBuffer(f);
+    }).catch(()=> toast('Reading Excel needs internet once — or save the file as CSV and upload that'));
+  }
+});
+const IMPORT_FIELDS = {
+  payees: [
+    {key:'name',     label:'Name',           req:true,  guess:/name/i, not:/account|bank|user/i},
+    {key:'bank',     label:'Bank',           req:false, guess:/bank/i, not:/code|acc|no|num/i},
+    {key:'bankCode', label:'Bank code',      req:false, guess:/code|sort/i},
+    {key:'acct',     label:'Account number', req:false, guess:/acc(oun)?t.*(no|num)|nuban|account number/i},
+    {key:'amount',   label:'Amount',         req:false, guess:/amount|salary|fee|pay/i},
+    {key:'desc',     label:'Description / Funds expected', req:false, guess:/funds?.*expect|expect.*funds?|desc|purpose|reason/i}
+  ],
+  items: [
+    {key:'desc',  label:'Item description', req:true,  guess:/item|desc|product|particular|name/i},
+    {key:'qty',   label:'Quantity',         req:false, guess:/qty|quant/i},
+    {key:'unit',  label:'Unit price',       req:false, guess:/unit|rate|price/i, not:/total/i},
+    {key:'total', label:'Total price',      req:false, guess:/total|amount/i}
+  ],
+  statement: [
+    {key:'date',  label:'Date',                    req:true,  guess:/date/i, not:/value/i},
+    {key:'note',  label:'Description / Narration', req:false, guess:/narrat|desc|detail|remark|particular|reference/i},
+    {key:'debit', label:'Debit / Money out',       req:true,  guess:/debit|withdraw|money out|\bdr\b|amount/i, not:/credit|balance/i}
+  ]
+};
+function parseDateFlex(s){
+  s = String(s==null?'':s).trim();
+  if(!s) return null;
+  const MONTHS = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+  const mk = (y,mo,d)=>{
+    y = +y; mo = +mo; d = +d;
+    if(y < 100) y += 2000;
+    if(!(mo>=1 && mo<=12 && d>=1 && d<=31)) return null;
+    return y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+  };
+  let m = s.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);            // yyyy-mm-dd
+  if(m) return mk(m[1], m[2], m[3]);
+  m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);              // dd/mm/yyyy (day-first)
+  if(m) return mk(m[3], m[2], m[1]);
+  m = s.match(/^(\d{1,2})[ \-]?([A-Za-z]{3,})[ \-,]+(\d{2,4})/);            // dd MMM yyyy
+  if(m && MONTHS[m[2].slice(0,3).toLowerCase()]) return mk(m[3], MONTHS[m[2].slice(0,3).toLowerCase()], m[1]);
+  m = s.match(/^([A-Za-z]{3,})[ \-](\d{1,2}),?[ \-]+(\d{2,4})/);            // MMM dd, yyyy
+  if(m && MONTHS[m[1].slice(0,3).toLowerCase()]) return mk(m[3], MONTHS[m[1].slice(0,3).toLowerCase()], m[2]);
+  return null;
+}
+function openImportModal(target, rows, fileName){
+  if(!rows || rows.length < 2){ toast('That file has no data rows'); return; }
+  const headers = rows[0].map(h=>String(h).trim());
+  importCtx = { target, headers, dataRows: rows.slice(1) };
+  const fields = IMPORT_FIELDS[target];
+  const used = new Set();
+  const guessFor = f => {
+    for(let i=0;i<headers.length;i++){
+      if(used.has(i)) continue;
+      if(f.guess.test(headers[i]) && !(f.not && f.not.test(headers[i]))){ used.add(i); return i; }
+    }
+    return -1;
+  };
+  const titles = {payees:'Import Payees', items:'Import Items', statement:'Import Bank Statement'};
+  $('importTitle').innerHTML = titles[target] + ' <span style="font-size:12px;color:var(--muted);font-weight:400">from ' + esc(fileName) + '</span>';
+  $('importMap').innerHTML = fields.map(f=>{
+    const g = guessFor(f);
+    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <label style="width:130px;margin:0">${f.label}${f.req?' *':''}</label>
+      <select id="imap_${f.key}" style="flex:1">
+        <option value="-1">— not in file —</option>
+        ${headers.map((h,i)=>`<option value="${i}" ${i===g?'selected':''}>${esc(h)||('Column '+(i+1))}</option>`).join('')}
+      </select>
+    </div>`;
+  }).join('');
+  if(target==='statement'){
+    $('importMap').innerHTML += `<div style="border-top:1px solid var(--border);margin-top:12px;padding-top:12px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <label style="width:130px;margin:0">Payment method</label>
+        <select id="imap_x_method" style="flex:1">${methodOptionsHtml()}</select>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <label style="width:130px;margin:0">Default category</label>
+        <select id="imap_x_cat" style="flex:1">${state.categories.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
+      </div>
+      <p style="font-size:11.5px;color:var(--muted);margin-top:8px">Credits (money in) and rows already imported are skipped automatically. You can recategorise individual expenses afterwards with &#9998;.</p>
+    </div>`;
+    const fn = fileName.toLowerCase();
+    const guessM = /gtb|gt bank|guaranty/.test(fn) ? 'Transfer – GTBank'
+                 : fn.includes('providus') ? 'Transfer – Providus Bank'
+                 : fn.includes('first') ? 'Transfer – First Bank'
+                 : fn.includes('paybox') ? 'Transfer – PayBox360'
+                 : fn.includes('liberty') ? 'Transfer – Liberty Pay'
+                 : 'Bank transfer';
+    if(state.methods.includes(guessM)) $('imap_x_method').value = guessM;
+    if(state.categories.some(c=>c.id==='other')) $('imap_x_cat').value = 'other';
+  }
+  $('importPreview').innerHTML = `<div style="color:var(--muted);margin-bottom:6px">Preview — first ${Math.min(3,importCtx.dataRows.length)} of ${importCtx.dataRows.length} rows:</div>
+    <table style="font-size:11.5px"><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
+    <tbody>${importCtx.dataRows.slice(0,3).map(r=>`<tr>${headers.map((_,i)=>`<td>${esc(r[i])}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  $('importConfirmBtn').textContent = 'Import ' + importCtx.dataRows.length + ' row' + (importCtx.dataRows.length===1?'':'s');
+  $('importModal').classList.add('open');
+}
+function confirmImport(){
+  if(!importCtx) return;
+  const fields = IMPORT_FIELDS[importCtx.target];
+  const map = {};
+  for(const f of fields){
+    const idx = parseInt($('imap_'+f.key).value);
+    if(f.req && idx < 0){ toast(f.label+' is required — pick its column'); return; }
+    map[f.key] = idx;
+  }
+  const mapped = importCtx.dataRows.map(r=>{
+    const o = {};
+    fields.forEach(f=>{ o[f.key] = map[f.key] >= 0 ? String(r[map[f.key]]==null?'':r[map[f.key]]).trim() : ''; });
+    return o;
+  });
+  if(importCtx.target==='payees') applyPayeeImport(mapped);
+  else if(importCtx.target==='statement') applyStatementImport(mapped, $('imap_x_method').value, $('imap_x_cat').value);
+  else applyItemsImport(mapped);
+  closeModal('importModal');
+  importCtx = null;
+}
+function applyStatementImport(mapped, method, cat){
+  if(!state.categories.some(c=>c.id===cat)) cat = 'other';
+  let added=0, skippedIn=0, skippedDup=0, badDate=0, lastDate=null;
+  mapped.forEach(m=>{
+    const amt = parseNum(m.debit);
+    if(!amt || amt<=0){ skippedIn++; return; }
+    const date = parseDateFlex(m.date);
+    if(!date){ badDate++; return; }
+    const note = m.note||'';
+    const dup = state.expenses.some(e=>e.date===date && Math.abs(e.amount-amt)<0.005 && (e.note||'')===note);
+    if(dup){ skippedDup++; return; }
+    state.expenses.push({
+      id: 'e'+Date.now()+Math.random().toString(36).slice(2,6),
+      amount: amt, date, cat, method, note
+    });
+    added++;
+    if(!lastDate || date>lastDate) lastDate = date;
+  });
+  persist();
+  if(lastDate) viewMonth = new Date(lastDate.slice(0,7)+'-01T00:00:00');
+  render();
+  const bits = [added+' expense'+(added===1?'':'s')+' imported'];
+  if(skippedIn) bits.push(skippedIn+' credit/blank row'+(skippedIn===1?'':'s')+' skipped');
+  if(skippedDup) bits.push(skippedDup+' duplicate'+(skippedDup===1?'':'s')+' skipped');
+  if(badDate) bits.push(badDate+' unreadable date'+(badDate===1?'':'s'));
+  toast(bits.join(' · '));
+}
+function applyPayeeImport(mapped){
+  let added=0, updated=0, skipped=0;
+  const normAcct = s => String(s||'').replace(/\D/g,'');
+  const normName = s => String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
+  mapped.forEach(m=>{
+    if(!m.name){ skipped++; return; }
+    // resolve bank against the directory: canonical name + correct 6-digit code
+    const bk = findBank(m.bank);
+    const rBank = bk ? bk[0] : (m.bank||'').trim();
+    const rCode = bk ? bk[1] : padCode(m.bankCode);
+    const match = state.payees.find(p=>
+      (normAcct(m.acct) && normAcct(p.acct) && normAcct(p.acct)===normAcct(m.acct)) ||
+      normName(p.name)===normName(m.name)
+    );
+    if(match){
+      // existing payee: backfill empty fields; fix bank name/code from the directory
+      let changed = false;
+      if(bk && (match.bank!==rBank || match.bankCode!==rCode)){ match.bank = rBank; match.bankCode = rCode; changed = true; }
+      ['bank','bankCode','acct','desc'].forEach(f=>{
+        const v = f==='bank' ? rBank : f==='bankCode' ? rCode : (m[f]||'').trim();
+        if(!String(match[f]||'').trim() && v){ match[f] = v; changed = true; }
+      });
+      if(!match.amount && parseNum(m.amount)){ match.amount = parseNum(m.amount); changed = true; }
+      if(changed) updated++; else skipped++;
+      return;
+    }
+    state.payees.push({
+      id: 'p'+Date.now()+Math.random().toString(36).slice(2,6),
+      name: m.name,
+      bank: rBank,
+      bankCode: rCode,
+      acct: m.acct||'',
+      amount: parseNum(m.amount),
+      desc: m.desc||'',
+      cat: 'payments'
+    });
+    added++;
+  });
+  persist(); render();
+  const bits = [];
+  if(added) bits.push('imported '+added+' new');
+  if(updated) bits.push('filled in details for '+updated);
+  if(skipped) bits.push('skipped '+skipped+' (unchanged)');
+  toast(bits.length ? 'Payees: '+bits.join(' · ') : 'No usable rows found');
+}
+function applyItemsImport(mapped){
+  const items = mapped.filter(m=>m.desc).map(m=>{
+    const qty = parseNum(m.qty), unit = parseNum(m.unit);
+    let total = parseNum(m.total);
+    if(!total && qty>0 && unit>0) total = +(qty*unit).toFixed(2);
+    return {desc:m.desc, qty:qty||'', unit:unit||'', total:total||''};
+  });
+  if(!items.length){ toast('No usable item rows found'); return; }
+  formItems = formItems.concat(items);
+  renderItemRows();
+  if(!parseFloat($('fAmt').value)) $('fAmt').value = itemsTotal().toFixed(2);
+  toast(items.length+' item'+(items.length===1?'':'s')+' added — set the category and date, then Add Expense');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+// ---------- grocery tracker ----------
+let grocDefaulted = false;
+function changeBadge(lastUnit, prevUnit){
+  if(!(prevUnit>0 && lastUnit>0)) return '<span class="note-txt">—</span>';
+  const ch = (lastUnit-prevUnit)/prevUnit*100;
+  if(Math.abs(ch) < 0.5) return '<span class="chip" style="background:#eef1f6;color:var(--muted)">no change</span>';
+  const up = ch>0;
+  return `<span class="chip" style="background:${up?'#fdecec':'#e7f6ec'};color:${up?'var(--danger)':'var(--ok)'}">${up?'&#9650;':'&#9660;'} ${Math.abs(ch).toFixed(1)}%</span>`;
+}
+function renderGrocery(){
+  const cur = $('grocCat').value;
+  $('grocCat').innerHTML = '<option value="">All categories</option>' + state.categories.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  if(!grocDefaulted){
+    if(state.categories.some(c=>c.id==='food')) $('grocCat').value = 'food';
+    grocDefaulted = true;
+  }else if(cur==='' || state.categories.some(c=>c.id===cur)){
+    $('grocCat').value = cur;
+  }
+  const catF = $('grocCat').value;
+  const q = $('grocSearch').value.trim().toLowerCase();
+
+  const groups = {};
+  state.expenses.forEach(e=>{
+    if(catF && e.cat!==catF) return;
+    (e.items||[]).forEach(it=>{
+      const desc = String(it.desc||'').trim(); if(!desc) return;
+      const key = desc.toLowerCase();
+      if(q && !key.includes(q)) return;
+      const qty = parseNum(it.qty), total = parseNum(it.total);
+      const unit = parseNum(it.unit) || (qty>0 ? total/qty : 0);
+      (groups[key] = groups[key] || {desc, recs:[]}).recs.push({date:e.date, qty, unit, total});
+      groups[key].cat = e.cat;
+    });
+  });
+  state.grocs.forEach(g=>{
+    if(catF && g.cat!==catF) return;
+    const key = g.name.trim().toLowerCase();
+    if(q && !key.includes(q)) return;
+    groups[key] = groups[key] || {desc:g.name, recs:[], cat:g.cat};
+    groups[key].reg = g;
+  });
+  const keys = Object.keys(groups);
+  keys.forEach(k=>groups[k].recs.sort((a,b)=>a.date.localeCompare(b.date)));
+  keys.sort((a,b)=>{
+    const ra = groups[a].recs, rb = groups[b].recs;
+    if(!ra.length || !rb.length) return ra.length - rb.length || a.localeCompare(b); // unbought first
+    return rb[rb.length-1].date.localeCompare(ra[ra.length-1].date) || a.localeCompare(b);
+  });
+
+  const mk = monthKey(viewMonth);
+  const monthSpent = state.expenses.filter(e=>keyOfDateStr(e.date)===mk && (!catF || e.cat===catF)).reduce((s,e)=>s+e.amount,0);
+  $('grocSummary').textContent = keys.length
+    ? keys.length+' item'+(keys.length===1?'':'s')+' tracked · '+fmt(monthSpent)+' spent this month'
+    : '';
+
+  if(!keys.length){
+    $('grocBody').innerHTML = `<tr><td colspan="7"><div class="empty"><div class="big">&#128717;&#65039;</div>${q?'No items match "'+esc(q)+'".':'Nothing tracked yet.<br>Add your grocery items with the button above, or log item details on expenses.'}</div></td></tr>`;
+    return;
+  }
+  $('grocBody').innerHTML = keys.map(k=>{
+    const g = groups[k];
+    const last = g.recs.length ? g.recs[g.recs.length-1] : null;
+    const prev = g.recs.length>1 ? g.recs[g.recs.length-2] : null;
+    const spent = g.recs.reduce((s,r)=>s+r.total,0);
+    const logBtn = `<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();openLogModal(this.dataset.k, this.dataset.c)" data-k="${esc(g.desc)}" data-c="${esc(g.cat||catF||'food')}">&#128722; Log</button>`;
+    const delBtn = g.reg ? ` <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteGrocItem('${g.reg.id}')" title="Remove from list (purchase history stays)">&#128465;&#65039;</button>` : '';
+    return `<tr style="cursor:pointer" onclick="openPricesFor(this.dataset.k)" data-k="${esc(g.desc)}" title="Click for full price history">
+      <td style="font-weight:600">${esc(g.desc)}${g.reg && !g.recs.length ? ' <span class="chip" style="background:var(--accent-soft);color:var(--accent)">new</span>' : ''}</td>
+      <td class="note-txt" style="white-space:nowrap">${last ? new Date(last.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}) : '—'}</td>
+      <td style="text-align:right">${g.recs.length ? g.recs.length+'&times;' : '—'}</td>
+      <td class="amt" style="text-align:right">${last && last.unit>0 ? fmt(last.unit) : '—'}</td>
+      <td>${last ? changeBadge(last.unit, prev?prev.unit:0) : '<span class="note-txt">not bought yet</span>'}</td>
+      <td class="amt" style="text-align:right">${g.recs.length ? fmt(spent) : '—'}</td>
+      <td style="white-space:nowrap;text-align:right">${logBtn}${delBtn}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ---------- grocery catalog & purchase logging ----------
+function openGrocModal(id){
+  const g = id ? state.grocs.find(x=>x.id===id) : null;
+  $('grocTitle').textContent = g ? 'Edit Grocery Item' : 'Add Grocery Item';
+  $('gId').value = g ? g.id : '';
+  $('gName').value = g ? g.name : '';
+  $('gCat').innerHTML = state.categories.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  $('gCat').value = g && state.categories.some(c=>c.id===g.cat) ? g.cat
+                  : (state.categories.some(c=>c.id==='food') ? 'food' : state.categories[0].id);
+  $('grocModal').classList.add('open');
+}
+function saveGrocItem(){
+  const name = $('gName').value.trim();
+  if(!name){ toast('Enter the item name'); return; }
+  const id = $('gId').value;
+  const dup = state.grocs.some(g=>g.id!==id && g.name.trim().toLowerCase()===name.toLowerCase());
+  if(dup){ toast('That item is already on the list'); return; }
+  if(id){
+    const g = state.grocs.find(x=>x.id===id);
+    if(g){ g.name = name; g.cat = $('gCat').value; }
+  }else{
+    state.grocs.push({id:'g'+Date.now()+Math.random().toString(36).slice(2,6), name, cat: $('gCat').value});
+  }
+  persist(); closeModal('grocModal'); renderGrocery();
+  toast(id ? 'Item updated' : 'Item added — use Log to record a purchase');
+}
+function deleteGrocItem(id){
+  const g = state.grocs.find(x=>x.id===id); if(!g) return;
+  if(!confirm('Remove "'+g.name+'" from the grocery list? Past purchases stay in your expenses.')) return;
+  state.grocs = state.grocs.filter(x=>x.id!==id);
+  persist(); renderGrocery();
+}
+function openLogModal(desc, cat){
+  $('lgTitle').innerHTML = '&#128722; Log Purchase &mdash; ' + esc(desc);
+  $('lgDesc').value = desc;
+  $('lgCat').value = cat || 'food';
+  $('lgDate').value = todayStr();
+  // prefill qty/unit from the most recent purchase of this item
+  let lastRec = null;
+  [...state.expenses].sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>{
+    (e.items||[]).forEach(it=>{
+      if(String(it.desc||'').trim().toLowerCase()===desc.trim().toLowerCase()) lastRec = it;
+    });
+  });
+  $('lgQty').value = lastRec ? (parseNum(lastRec.qty)||'') : '';
+  $('lgUnit').value = lastRec ? (parseNum(lastRec.unit)||'') : '';
+  $('lgTotal').value = '';
+  syncLogTotal();
+  $('lgMethod').innerHTML = methodOptionsHtml();
+  if(state.methods.includes('Cash')) $('lgMethod').value = 'Cash';
+  clearOther('lgMethod','lgMethodOther');
+  $('logModal').classList.add('open');
+}
+function syncLogTotal(){
+  const q = parseNum($('lgQty').value), u = parseNum($('lgUnit').value);
+  if(q>0 && u>0) $('lgTotal').value = +(q*u).toFixed(2);
+}
+$('lgQty').addEventListener('input', syncLogTotal);
+$('lgUnit').addEventListener('input', syncLogTotal);
+function confirmLog(){
+  const desc = $('lgDesc').value;
+  const qty = parseNum($('lgQty').value), unit = parseNum($('lgUnit').value);
+  let total = parseNum($('lgTotal').value);
+  if(!total && qty>0 && unit>0) total = +(qty*unit).toFixed(2);
+  if(!total || total<=0){ toast('Enter the total (or qty and unit price)'); return; }
+  const date = $('lgDate').value || todayStr();
+  const cat = state.categories.some(c=>c.id===$('lgCat').value) ? $('lgCat').value : 'food';
+  state.expenses.push({
+    id: 'e'+Date.now()+Math.random().toString(36).slice(2,6),
+    amount: total,
+    date,
+    cat,
+    method: methodValue('lgMethod','lgMethodOther') || 'Cash',
+    note: desc,
+    items: [{desc, qty:qty||'', unit:unit||'', total}]
+  });
+  persist(); closeModal('logModal'); render();
+  toast('Purchase logged — '+fmt(total));
+}
+function openPricesFor(desc){
+  $('priceSearch').value = desc;
+  renderPrices(desc);
+  $('priceModal').classList.add('open');
+}
+
+// ---------- price history ----------
+function openPrices(){ $('priceSearch').value=''; renderPrices(''); $('priceModal').classList.add('open'); }
+function renderPrices(q){
+  q = (q||'').trim().toLowerCase();
+  const groups = {};
+  state.expenses.forEach(e=>{
+    (e.items||[]).forEach(it=>{
+      const desc = String(it.desc||'').trim(); if(!desc) return;
+      const key = desc.toLowerCase();
+      if(q && !key.includes(q)) return;
+      const qty = parseNum(it.qty), total = parseNum(it.total);
+      const unit = parseNum(it.unit) || (qty>0 ? total/qty : 0);
+      (groups[key] = groups[key] || {desc, recs:[]}).recs.push({date:e.date, qty, unit, total});
+    });
+  });
+  const keys = Object.keys(groups).sort();
+  if(!keys.length){
+    $('priceBody').innerHTML = `<div class="empty"><div class="big">&#128717;&#65039;</div>${q?'No items match "'+esc(q)+'".':'No items logged yet.<br>Add item details to your expenses and prices will show up here.'}</div>`;
+    return;
+  }
+  $('priceBody').innerHTML = keys.map(k=>{
+    const g = groups[k];
+    g.recs.sort((a,b)=>a.date.localeCompare(b.date));
+    const last = g.recs[g.recs.length-1];
+    const prev = g.recs.length>1 ? g.recs[g.recs.length-2] : null;
+    let badge = '';
+    if(prev && prev.unit>0 && last.unit>0){
+      const ch = (last.unit-prev.unit)/prev.unit*100;
+      if(Math.abs(ch) >= 0.5){
+        const up = ch>0;
+        badge = `<span class="chip" style="background:${up?'#fdecec':'#e7f6ec'};color:${up?'var(--danger)':'var(--ok)'}">${up?'&#9650;':'&#9660;'} ${Math.abs(ch).toFixed(1)}%</span>`;
+      }else badge = `<span class="chip" style="background:#eef1f6;color:var(--muted)">no change</span>`;
+    }
+    return `<details style="border-bottom:1px solid #f0f2f7;padding:8px 0">
+      <summary style="cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none">
+        <span style="flex:1;font-weight:600;font-size:13.5px">${esc(g.desc)}</span>
+        ${badge}
+        <span style="font-weight:700;font-size:13px">${last.unit>0?fmt(last.unit):fmt(last.total)}</span>
+        <span style="color:var(--muted);font-size:11.5px">${g.recs.length}&times;</span>
+      </summary>
+      <table style="font-size:12.5px;margin-top:8px">
+        <thead><tr><th>Date</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit price</th><th style="text-align:right">Total</th></tr></thead>
+        <tbody>${[...g.recs].reverse().map(r=>`<tr>
+          <td>${new Date(r.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})}</td>
+          <td style="text-align:right">${r.qty||'—'}</td>
+          <td style="text-align:right">${r.unit>0?fmt(r.unit):'—'}</td>
+          <td style="text-align:right">${fmt(r.total)}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </details>`;
+  }).join('');
+}
+
+// ---------- settings & categories ----------
+function openSettings(){
+  $('sCur').value = state.settings.currency;
+  $('sBudget').value = state.settings.budget || '';
+  renderCatList();
+  renderMethodList();
+  $('settingsModal').classList.add('open');
+}
+function renderCatList(){
+  $('catList').innerHTML = state.categories.map(c=>`
+    <div class="cat-row">
+      <input type="color" value="${c.color}" onchange="updateCat('${c.id}','color',this.value)">
+      <input class="nm" type="text" value="${c.name.replace(/"/g,'&quot;')}" onchange="updateCat('${c.id}','name',this.value)" style="border:none;background:none;padding:4px">
+      <button class="del" onclick="removeCat('${c.id}')" title="Delete category">&#128465;&#65039;</button>
+    </div>`).join('');
+}
+function updateCat(id, field, val){
+  const c = state.categories.find(x=>x.id===id); if(!c) return;
+  if(field==='name' && !val.trim()) return;
+  c[field] = field==='name' ? val.trim() : val;
+  persist(); render();
+}
+function addCategory(){
+  const name = $('newCatName').value.trim();
+  if(!name){ toast('Enter a category name'); return; }
+  state.categories.push({id:'c'+Date.now(), name, color: $('newCatColor').value});
+  $('newCatName').value='';
+  persist(); renderCatList(); render(); toast('Category added');
+}
+function removeCat(id){
+  const used = state.expenses.filter(e=>e.cat===id).length;
+  if(used && !confirm(used+' expense(s) use this category. They will show as "(deleted)". Delete anyway?')) return;
+  state.categories = state.categories.filter(c=>c.id!==id);
+  persist(); renderCatList(); render();
+}
+function saveSettings(){
+  state.settings.currency = $('sCur').value || '₦';
+  state.settings.budget = parseFloat($('sBudget').value) || 0;
+  persist(); $('settingsModal').classList.remove('open'); render(); toast('Settings saved');
+}
+function clearAll(){
+  if(!confirm('This deletes ALL expenses, categories and settings. Are you sure?')) return;
+  if(!confirm('Really sure? This cannot be undone.')) return;
+  state = defaults(); persist();
+  $('settingsModal').classList.remove('open'); resetForm(); render(); toast('All data cleared');
+}
+document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click', e=>{ if(e.target===e.currentTarget) m.classList.remove('open'); }));
+
+// ---------- CSV export ----------
+function exportCSV(){
+  if(!state.expenses.length){ toast('Nothing to export yet'); return; }
+  const rows = [['Date','Category','Amount','Payment method','Note','Items']];
+  [...state.expenses].sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>{
+    const itemsTxt = (e.items||[]).map(it=>{
+      const q = parseNum(it.qty), u = parseNum(it.unit);
+      return it.desc + (q?' x'+q:'') + (u?' @'+u:'') + ' = ' + parseNum(it.total);
+    }).join('; ');
+    rows.push([e.date, e.catLabel || catById(e.cat).name, e.amount, e.method, e.note, itemsTxt]);
+  });
+  const csv = rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\r\n');
+  const blob = new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'expenses-'+todayStr()+'.csv';
+  a.click(); URL.revokeObjectURL(a.href);
+  toast('CSV downloaded');
+}
+
+// ---------- render ----------
+function render(){
+  const mk = monthKey(viewMonth);
+  const now = new Date();
+  $('monthLabel').textContent = viewMonth.toLocaleDateString(undefined,{month:'long',year:'numeric'});
+
+  // category selects
+  const opts = state.categories.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  const curForm = $('fCat').value, curFlt = $('fltCat').value;
+  $('fCat').innerHTML = opts;
+  if(state.categories.some(c=>c.id===curForm)) $('fCat').value = curForm;
+  toggleCatOther();
+  $('fltCat').innerHTML = '<option value="">All categories</option>'+opts;
+  if(state.categories.some(c=>c.id===curFlt)) $('fltCat').value = curFlt;
+
+  // payment method select (grouped)
+  const curM = $('fMethod').value;
+  $('fMethod').innerHTML = methodOptionsHtml();
+  if(curM && state.methods.includes(curM)) $('fMethod').value = curM;
+  toggleOther('fMethod','fMethodOther');
+
+  const monthExps = state.expenses.filter(e=>keyOfDateStr(e.date)===mk);
+  const total = monthExps.reduce((s,e)=>s+e.amount,0);
+
+  // stats
+  const isCurrentMonth = mk === monthKey(now);
+  const daysElapsed = isCurrentMonth ? now.getDate() : new Date(viewMonth.getFullYear(),viewMonth.getMonth()+1,0).getDate();
+  const avgDay = daysElapsed ? total/daysElapsed : 0;
+  // group for stats + donut: written-in "Other" labels become their own groups
+  const byGroup = {};
+  monthExps.forEach(e=>{
+    let key, name, color;
+    if(e.cat==='other' && e.catLabel){
+      key = 'lbl:'+e.catLabel.trim().toLowerCase();
+      name = e.catLabel.trim();
+      color = null; // assigned below, avoiding clashes with category colors
+    }else{
+      const c = catById(e.cat);
+      key = e.cat; name = c.name; color = c.color;
+    }
+    (byGroup[key] = byGroup[key] || {name, color, total:0}).total += e.amount;
+  });
+  {
+    const used = new Set(Object.values(byGroup).filter(g=>g.color).map(g=>g.color.toLowerCase()));
+    Object.keys(byGroup).filter(k=>k.startsWith('lbl:')).sort().forEach(k=>{
+      const g = byGroup[k];
+      const start = labelIdx(g.name);
+      let pick = LABEL_PALETTE[start];
+      for(let i=0;i<LABEL_PALETTE.length;i++){
+        const c = LABEL_PALETTE[(start+i)%LABEL_PALETTE.length];
+        if(!used.has(c.toLowerCase())){ pick = c; break; }
+      }
+      g.color = pick; used.add(pick.toLowerCase());
+    });
+  }
+  const topKey = Object.keys(byGroup).sort((a,b)=>byGroup[b].total-byGroup[a].total)[0];
+  const biggest = monthExps.reduce((m,e)=>e.amount>(m?m.amount:0)?e:m, null);
+
+  let budgetHtml = '';
+  if(state.settings.budget>0){
+    const pct = Math.min(100, total/state.settings.budget*100);
+    const col = pct>=100 ? 'var(--danger)' : pct>=80 ? 'var(--warn)' : 'var(--ok)';
+    const left = state.settings.budget-total;
+    budgetHtml = `<div class="stat">
+      <div class="lbl">Budget</div>
+      <div class="val" style="color:${col}">${pct.toFixed(0)}%</div>
+      <div class="budget-bar"><div class="budget-fill" style="width:${pct}%;background:${col}"></div></div>
+      <div class="sub">${left>=0 ? fmt(left)+' left of '+fmt(state.settings.budget) : fmt(-left)+' over budget'}</div>
+    </div>`;
+  }
+  const bal = walletBalance(), funded = walletFunded();
+  const balCol = bal < 0 ? 'var(--danger)' : 'var(--ink)';
+  $('stats').innerHTML = `
+    <div class="stat"><div class="lbl">Wallet balance</div><div class="val" style="color:${balCol}">${fmt(bal)}</div><div class="sub">${funded ? fmt(funded)+' funded to date' : '<a href="#" onclick="openWallet();return false" style="color:var(--accent);font-weight:600">Set starting amount &rarr;</a>'}</div></div>
+    <div class="stat"><div class="lbl">Total spent</div><div class="val">${fmt(total)}</div><div class="sub">${monthExps.length} expense${monthExps.length===1?'':'s'} this month</div></div>
+    <div class="stat"><div class="lbl">Daily average</div><div class="val">${fmt(avgDay)}</div><div class="sub">over ${daysElapsed} day${daysElapsed===1?'':'s'}</div></div>
+    <div class="stat"><div class="lbl">Top category</div><div class="val" style="font-size:17px">${topKey?esc(byGroup[topKey].name):'—'}</div><div class="sub">${topKey?fmt(byGroup[topKey].total):'no expenses yet'}</div></div>
+    ${budgetHtml || `<div class="stat"><div class="lbl">Biggest expense</div><div class="val" style="font-size:17px">${biggest?fmt(biggest.amount):'—'}</div><div class="sub">${biggest?(biggest.note||catById(biggest.cat).name):'no expenses yet'}</div></div>`}
+  `;
+
+  // table (filtered)
+  const q = $('fltSearch').value.trim().toLowerCase();
+  const fc = $('fltCat').value;
+  let list = monthExps.filter(e=>
+    (!fc || e.cat===fc) &&
+    (!q || (e.note||'').toLowerCase().includes(q) || (e.catLabel||'').toLowerCase().includes(q) || catById(e.cat).name.toLowerCase().includes(q))
+  ).sort((a,b)=> b.date.localeCompare(a.date));
+
+  // consolidate payee payments into one row (default view only; filters drill into detail)
+  let payeeGroup = null;
+  if(!q && !fc){
+    const pex = list.filter(e=>e.payeeId);
+    if(pex.length){
+      payeeGroup = {
+        count: pex.length,
+        total: pex.reduce((s,e)=>s+e.amount,0),
+        latest: pex.reduce((m,e)=>e.date>m?e.date:m, pex[0].date),
+        methods: [...new Set(pex.map(e=>e.method))]
+      };
+      list = list.filter(e=>!e.payeeId);
+    }
+  }
+  const displayCount = list.length + (payeeGroup?1:0);
+  $('listCount').textContent = displayCount ? '('+displayCount+')' : '';
+  if(!displayCount){
+    $('expBody').innerHTML = `<tr><td colspan="6"><div class="empty"><div class="big">&#129327;</div>${monthExps.length? 'No expenses match your filters.' : 'No expenses recorded for this month yet.<br>Add your first one above!'}</div></td></tr>`;
+  }else{
+    const rowsArr = list.map(e=>{
+      const c = catById(e.cat);
+      const d = new Date(e.date+'T00:00:00');
+      return {date:e.date, html:`<tr>
+        <td style="white-space:nowrap">${d.toLocaleDateString(undefined,{day:'numeric',month:'short'})}</td>
+        <td><span class="chip" style="background:${c.color}18;color:${c.color}" ${e.catLabel?'title="Other"':''}><span class="dot" style="background:${c.color}"></span>${e.catLabel?esc(e.catLabel):c.name}</span></td>
+        <td class="note-txt">${e.file?`<a href="#" onclick="openAttachment('${e.id}');return false" title="Open: ${esc(e.file.name)}" style="text-decoration:none">&#128206;</a> `:''}${e.items&&e.items.length?`<a href="#" onclick="viewItems('${e.id}');return false" title="View ${e.items.length} item(s)" style="text-decoration:none">&#129534;${e.items.length}</a> `:''}${(e.note||'').replace(/</g,'&lt;')||'—'}</td>
+        <td class="note-txt">${e.method}</td>
+        <td class="amt" style="text-align:right">${fmt(e.amount)}</td>
+        <td style="white-space:nowrap;text-align:right">
+          <button class="btn btn-ghost btn-sm" onclick="editExpense('${e.id}')">&#9998;</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteExpense('${e.id}')">&#128465;&#65039;</button>
+        </td>
+      </tr>`};
+    });
+    if(payeeGroup){
+      const pc = catById('payments');
+      const mn = viewMonth.toLocaleDateString(undefined,{month:'long',year:'numeric'});
+      const gd = new Date(payeeGroup.latest+'T00:00:00');
+      const gRow = {date:payeeGroup.latest, html:`<tr style="cursor:pointer;background:${pc.color}0d" onclick="viewPayeeGroup()" title="Click to see each payment">
+        <td style="white-space:nowrap">${gd.toLocaleDateString(undefined,{day:'numeric',month:'short'})}</td>
+        <td><span class="chip" style="background:${pc.color}18;color:${pc.color}"><span class="dot" style="background:${pc.color}"></span>${esc(pc.name)}</span></td>
+        <td class="note-txt" style="font-weight:600;color:var(--ink)">&#128101; Payee for ${mn} — ${payeeGroup.count} payment${payeeGroup.count===1?'':'s'} <span style="color:var(--accent);font-weight:600;font-size:12px">view &rsaquo;</span></td>
+        <td class="note-txt">${payeeGroup.methods.length===1 ? esc(payeeGroup.methods[0]) : 'Various'}</td>
+        <td class="amt" style="text-align:right">${fmt(payeeGroup.total)}</td>
+        <td></td>
+      </tr>`};
+      const gi = rowsArr.findIndex(r=>r.date <= payeeGroup.latest);
+      if(gi===-1) rowsArr.push(gRow); else rowsArr.splice(gi,0,gRow);
+    }
+    $('expBody').innerHTML = rowsArr.map(r=>r.html).join('');
+  }
+
+  renderPayees(mk);
+  renderGrocery();
+  drawDonut(byGroup, total);
+  drawTrend();
+}
+
+// ---------- donut chart ----------
+const LABEL_PALETTE = ['#0ea5e9','#8b5cf6','#f59e0b','#10b981','#ef4444','#ec4899','#14b8a6','#f97316','#84cc16','#a855f7'];
+function labelIdx(label){
+  let h = 0;
+  const s = String(label||'').toLowerCase();
+  for(let i=0;i<s.length;i++) h = (h*31 + s.charCodeAt(i)) >>> 0;
+  return h % LABEL_PALETTE.length;
+}
+function drawDonut(byGroup, total){
+  const cv = $('donut'), ctx = cv.getContext('2d');
+  const dpr = window.devicePixelRatio||1;
+  cv.width = 200*dpr; cv.height = 200*dpr; cv.style.width='200px'; cv.style.height='200px';
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,200,200);
+  const cx=100, cy=100, r=80, w=30;
+  const entries = Object.values(byGroup).sort((a,b)=>b.total-a.total);
+
+  if(!total){
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.strokeStyle='#eef1f6'; ctx.lineWidth=w; ctx.stroke();
+    ctx.fillStyle='#9ca3af'; ctx.font='600 13px Segoe UI'; ctx.textAlign='center';
+    ctx.fillText('No data', cx, cy+4);
+    $('legend').innerHTML = '';
+    return;
+  }
+  let ang = -Math.PI/2;
+  entries.forEach(g=>{
+    const frac = g.total/total, end = ang + frac*Math.PI*2;
+    ctx.beginPath(); ctx.arc(cx,cy,r,ang+0.015,end-0.015);
+    ctx.strokeStyle = g.color; ctx.lineWidth=w; ctx.lineCap='butt'; ctx.stroke();
+    ang = end;
+  });
+  ctx.fillStyle='#1c2333';
+  ctx.font='800 15px Segoe UI'; ctx.textAlign='center';
+  ctx.fillText(fmt(total), cx, cy);
+  ctx.fillStyle='#6b7487'; ctx.font='600 11px Segoe UI';
+  ctx.fillText('total', cx, cy+16);
+
+  $('legend').innerHTML = entries.map(g=>
+    `<div class="row"><span class="dot" style="background:${g.color}"></span><span class="nm">${esc(g.name)}</span><span class="v">${fmt(g.total)}</span><span class="pct">${(g.total/total*100).toFixed(0)}%</span></div>`
+  ).join('');
+}
+
+// ---------- trend chart ----------
+function drawTrend(){
+  const cv = $('trend'), ctx = cv.getContext('2d');
+  const cssW = cv.parentElement.clientWidth - 36 || 300, cssH = 170;
+  const dpr = window.devicePixelRatio||1;
+  cv.width = cssW*dpr; cv.height = cssH*dpr;
+  cv.style.width = cssW+'px'; cv.style.height = cssH+'px';
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,cssW,cssH);
+
+  const months = [];
+  const base = new Date(viewMonth);
+  for(let i=5;i>=0;i--){
+    const d = new Date(base.getFullYear(), base.getMonth()-i, 1);
+    const k = monthKey(d);
+    const sum = state.expenses.filter(e=>keyOfDateStr(e.date)===k).reduce((s,e)=>s+e.amount,0);
+    months.push({label:d.toLocaleDateString(undefined,{month:'short'}), sum, isView:k===monthKey(viewMonth)});
+  }
+  const max = Math.max(...months.map(m=>m.sum), 1);
+  const padB=24, padT=16, chartH = cssH-padB-padT;
+  const bw = Math.min(44, (cssW/6)*0.55), gap = cssW/6;
+
+  months.forEach((m,i)=>{
+    const h = (m.sum/max)*chartH;
+    const x = gap*i + (gap-bw)/2, y = cssH-padB-h;
+    ctx.fillStyle = m.isView ? '#2563eb' : '#c7d6f7';
+    roundRect(ctx, x, y, bw, Math.max(h,2), 5); ctx.fill();
+    ctx.fillStyle='#6b7487'; ctx.font='600 11px Segoe UI'; ctx.textAlign='center';
+    ctx.fillText(m.label, x+bw/2, cssH-8);
+    if(m.sum>0){
+      ctx.fillStyle = m.isView ? '#1c2333' : '#9aa3b5';
+      ctx.font='700 10px Segoe UI';
+      ctx.fillText(compact(m.sum), x+bw/2, y-4);
+    }
+  });
+}
+function roundRect(ctx,x,y,w,h,r){
+  r = Math.min(r, w/2, h/2);
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,0);
+  ctx.lineTo(x,y+h); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+function compact(n){
+  if(n>=1e6) return (n/1e6).toFixed(1).replace(/\.0$/,'')+'M';
+  if(n>=1e3) return (n/1e3).toFixed(1).replace(/\.0$/,'')+'k';
+  return String(Math.round(n));
+}
+
+// ---------- init ----------
+resetForm();
+render();
+window.addEventListener('resize', ()=>drawTrend());
+</script>
+</body>
+</html>
