@@ -453,6 +453,13 @@
   <div class="modal" style="max-width:420px">
     <h3 id="payTitle">Record Payment</h3>
     <input type="hidden" id="payPayeeId">
+    <input type="hidden" id="payLinkId">
+    <div id="payLinkBox" style="display:none;background:var(--accent-soft);border-radius:10px;padding:10px 12px;margin-bottom:12px">
+      <label style="display:flex;gap:8px;align-items:flex-start;margin:0;font-size:13px;color:var(--ink);cursor:pointer">
+        <input type="checkbox" id="payLinkChk" checked style="width:auto;margin-top:2px">
+        <span id="payLinkTxt"></span>
+      </label>
+    </div>
     <div class="form-grid">
       <div>
         <label>Amount</label>
@@ -1348,10 +1355,37 @@ function payPayee(id){
   $('payMethod').innerHTML = methodOptionsHtml();
   if(state.methods.includes('Bank transfer')) $('payMethod').value = 'Bank transfer';
   clearOther('payMethod','payMethodOther');
+  // if an unlinked expense with this amount already exists this month
+  // (e.g. it came in via a statement import), offer to link it instead of
+  // creating a double posting
+  const existing = state.expenses.find(e=>
+    !e.payeeId && keyOfDateStr(e.date)===mk && Math.abs(e.amount - p.amount) < 0.005
+  );
+  $('payLinkId').value = existing ? existing.id : '';
+  if(existing){
+    $('payLinkChk').checked = true;
+    $('payLinkTxt').innerHTML = 'An entry of <b>'+fmt(existing.amount)+'</b> from <b>'+
+      new Date(existing.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'})+
+      '</b>'+(existing.note?' ("'+esc(String(existing.note).slice(0,40))+'")':'')+
+      ' is already in your expenses. Mark it as this payment instead of creating a new entry.';
+    $('payLinkBox').style.display = 'block';
+  }else{
+    $('payLinkBox').style.display = 'none';
+  }
   $('payModal').classList.add('open');
 }
 function confirmPay(){
   const p = state.payees.find(x=>x.id===$('payPayeeId').value); if(!p) return;
+  // link the existing expense instead of creating a duplicate
+  if($('payLinkBox').style.display !== 'none' && $('payLinkChk').checked && $('payLinkId').value){
+    const ex = state.expenses.find(e=>e.id===$('payLinkId').value);
+    if(ex && !ex.payeeId){
+      ex.payeeId = p.id;
+      persist(); closeModal('payModal'); render();
+      toast('Linked to the existing entry — '+p.name+' is marked paid, no new expense created');
+      return;
+    }
+  }
   const amount = parseFloat($('payAmt').value);
   const date = $('payDate').value;
   if(!amount || amount <= 0){ toast('Enter a valid amount'); return; }
@@ -1920,6 +1954,15 @@ function applyStatementImport(mapped, method, cat){
   }
   let ownTransfers = 0;
 
+  // payees by account number: an imported payment to a payee's account is
+  // that payee's monthly payment — link it so their status flips to Paid
+  const payeeByAcct = {};
+  state.payees.forEach(p=>{
+    const a = String(p.acct||'').replace(/\D/g,'');
+    if(a.length>=8) payeeByAcct[a] = p;
+  });
+  let matchedPayees = 0;
+
   mapped.forEach(m=>{
     // failed / reversed / pending transactions never left the account
     if(m.status && /fail|revers|pending|declin|cancel/i.test(m.status)){ skippedFailed++; return; }
@@ -1941,10 +1984,16 @@ function applyStatementImport(mapped, method, cat){
     // Successful debits are otherwise ALWAYS recorded — same account or not,
     // same narration or not.
     if(consume(date, amt)){ skippedDup++; return; }
-    state.expenses.push({
+    const bd = String(m.bacct||'').replace(/\D/g,'');
+    const pMatch = bd ? payeeByAcct[bd] : null;
+    const exp = {
       id: 'e'+Date.now()+Math.random().toString(36).slice(2,6),
-      amount: amt, date, cat, method, note: m.note||''
-    });
+      amount: amt, date, method,
+      cat: pMatch ? (state.categories.some(c=>c.id===pMatch.cat) ? pMatch.cat : 'payments') : cat,
+      note: pMatch ? (payNoteFor(date, pMatch) + (m.note ? ' · '+m.note : '')) : (m.note||'')
+    };
+    if(pMatch){ exp.payeeId = pMatch.id; matchedPayees++; }
+    state.expenses.push(exp);
     added++;
     if(!lastDate || date>lastDate) lastDate = date;
   });
@@ -1952,6 +2001,7 @@ function applyStatementImport(mapped, method, cat){
   if(lastDate) viewMonth = new Date(lastDate.slice(0,7)+'-01T00:00:00');
   render();
   const bits = [added+' expense'+(added===1?'':'s')+' imported'];
+  if(matchedPayees) bits.push(matchedPayees+' matched to your payees — marked as paid');
   if(skippedDup) bits.push(skippedDup+' already in your tracker — skipped');
   if(ownTransfers) bits.push(ownTransfers+' transfer'+(ownTransfers===1?'':'s')+' between your own accounts — skipped');
   if(skippedFailed) bits.push(skippedFailed+' failed/reversed — skipped');
@@ -2044,7 +2094,18 @@ function renderGrocery(){
   const groups = {};
   state.expenses.forEach(e=>{
     if(catF && e.cat!==catF) return;
-    (e.items||[]).forEach(it=>{
+    const its = e.items||[];
+    if(!its.length){
+      // no line items: the expense itself feeds the tracker, named by its note
+      const desc = String(e.catLabel || e.note || '').trim();
+      if(!desc) return;
+      const key = desc.toLowerCase();
+      if(q && !key.includes(q)) return;
+      (groups[key] = groups[key] || {desc, recs:[]}).recs.push({date:e.date, qty:0, unit:0, total:e.amount});
+      groups[key].cat = e.cat;
+      return;
+    }
+    its.forEach(it=>{
       const desc = String(it.desc||'').trim(); if(!desc) return;
       const key = desc.toLowerCase();
       if(q && !key.includes(q)) return;
