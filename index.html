@@ -1033,9 +1033,9 @@ function renderProfileHeader(){
 function dToStr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function processAutoSavings(){
   const s = state.savings;
-  if(!s.enabled || !(s.daily > 0)){ s.lastRun = todayStr(); return; }
+  if(!s.enabled || !(s.daily > 0)){ s.lastRun = todayStr(); return 0; }
   if(!s.lastRun) s.lastRun = todayStr();
-  let changed = false, skipped = 0;
+  let added = 0, skipped = 0;
   const d = new Date(s.lastRun+'T00:00:00');
   const today = new Date(todayStr()+'T00:00:00');
   while(d < today){
@@ -1043,16 +1043,26 @@ function processAutoSavings(){
     const ds = dToStr(d);
     if(walletBalance() >= s.daily){
       s.entries.push({id:'sv'+Date.now()+Math.random().toString(36).slice(2,6), date: ds, amount: s.daily, type:'auto'});
-      changed = true;
+      added++;
     }else{
       skipped++;
       s.skippedTotal = (s.skippedTotal||0) + 1;
     }
     s.lastRun = ds;
   }
-  if(changed || skipped) persist();
-  if(skipped) toast(skipped+' auto-save day'+(skipped===1?'':'s')+' skipped — wallet was too low');
+  if(added || skipped) persist();
+  if(added) toast('🐖 '+fmt(s.daily*added)+' auto-saved'+(added>1?' ('+added+' days caught up)':'')+' — wallet updated');
+  else if(skipped) toast(skipped+' auto-save day'+(skipped===1?'':'s')+' skipped — wallet was too low');
+  return added + skipped;
 }
+// run the auto-save whenever the app wakes up, not just on page load —
+// tabs left open (especially on phones) never reload at midnight
+function autoSaveTick(){
+  if(processAutoSavings()) render();
+}
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) autoSaveTick(); });
+window.addEventListener('focus', autoSaveTick);
+setInterval(autoSaveTick, 5*60*1000);
 function openSavings(){
   $('savDaily').value = state.savings.daily || '';
   $('savEnabled').checked = !!state.savings.enabled;
@@ -1773,9 +1783,11 @@ const IMPORT_FIELDS = {
     {key:'total', label:'Total price',      req:false, guess:/total|amount/i}
   ],
   statement: [
-    {key:'date',  label:'Date',                    req:true,  guess:/date/i, not:/value/i},
-    {key:'note',  label:'Description / Narration', req:false, guess:/narrat|desc|detail|remark|particular|reference/i},
-    {key:'debit', label:'Debit / Money out',       req:true,  guess:/debit|withdraw|money out|\bdr\b|amount/i, not:/credit|balance/i}
+    {key:'date',   label:'Date',                    req:true,  guess:/date/i, not:/value|update/i},
+    {key:'note',   label:'Description / Narration', req:false, guess:/narrat|desc|detail|remark|particular|reference/i},
+    {key:'debit',  label:'Debit / Money out',       req:true,  guess:/debit|withdraw|money out|\bdr\b|amount/i, not:/credit|balance/i},
+    {key:'status', label:'Status (optional)',       req:false, guess:/status/i},
+    {key:'ttype',  label:'Transaction type (optional)', req:false, guess:/^type$|transaction.?type|trans.?type/i}
   ]
 };
 function parseDateFlex(s){
@@ -1873,18 +1885,41 @@ function confirmImport(){
 }
 function applyStatementImport(mapped, method, cat){
   if(!state.categories.some(c=>c.id===cat)) cat = 'other';
-  let added=0, skippedIn=0, skippedDup=0, badDate=0, lastDate=null;
+  let added=0, skippedIn=0, skippedDup=0, skippedFailed=0, badDate=0, lastDate=null;
+  let chargeCount=0, chargeSum=0;
+
+  // duplicate sieve: an existing expense with the same date and amount
+  // (however it was entered — by hand, via a payee payment, or a previous
+  // import) absorbs exactly one matching statement row
+  const seen = {};
+  state.expenses.forEach(e=>{
+    const k = e.date+'|'+Number(e.amount).toFixed(2);
+    seen[k] = (seen[k]||0) + 1;
+  });
+  const consume = (date, amt)=>{
+    const k = date+'|'+amt.toFixed(2);
+    if(seen[k] > 0){ seen[k]--; return true; }
+    return false;
+  };
+  const shiftDay = (ds, delta)=>{
+    const d = new Date(ds+'T00:00:00'); d.setDate(d.getDate()+delta); return dToStr(d);
+  };
+
   mapped.forEach(m=>{
+    // failed / reversed / pending transactions never left the account
+    if(m.status && /fail|revers|pending|declin|cancel/i.test(m.status)){ skippedFailed++; return; }
+    // money-in, reversals and platform commission rows are not expenses
+    if(m.ttype && /fund|credit|deposit|reversal|refund|commission/i.test(m.ttype)){ skippedIn++; return; }
     const amt = parseNum(m.debit);
     if(!amt || amt<=0){ skippedIn++; return; }
     const date = parseDateFlex(m.date);
     if(!date){ badDate++; return; }
-    const note = m.note||'';
-    const dup = state.expenses.some(e=>e.date===date && Math.abs(e.amount-amt)<0.005 && (e.note||'')===note);
-    if(dup){ skippedDup++; return; }
+    // tiny bank charges (stamp duty, SMS, VAT) are summed, not imported row by row
+    if(m.ttype && /vat|sms|levy|charge|duty|stamp|fee/i.test(m.ttype)){ chargeCount++; chargeSum+=amt; return; }
+    if(consume(date, amt) || consume(shiftDay(date,-1), amt) || consume(shiftDay(date,1), amt)){ skippedDup++; return; }
     state.expenses.push({
       id: 'e'+Date.now()+Math.random().toString(36).slice(2,6),
-      amount: amt, date, cat, method, note
+      amount: amt, date, cat, method, note: m.note||''
     });
     added++;
     if(!lastDate || date>lastDate) lastDate = date;
@@ -1893,8 +1928,10 @@ function applyStatementImport(mapped, method, cat){
   if(lastDate) viewMonth = new Date(lastDate.slice(0,7)+'-01T00:00:00');
   render();
   const bits = [added+' expense'+(added===1?'':'s')+' imported'];
-  if(skippedIn) bits.push(skippedIn+' credit/blank row'+(skippedIn===1?'':'s')+' skipped');
-  if(skippedDup) bits.push(skippedDup+' duplicate'+(skippedDup===1?'':'s')+' skipped');
+  if(skippedDup) bits.push(skippedDup+' already in your tracker — skipped');
+  if(skippedFailed) bits.push(skippedFailed+' failed/reversed — skipped');
+  if(skippedIn) bits.push(skippedIn+' money-in/blank row'+(skippedIn===1?'':'s')+' skipped');
+  if(chargeCount) bits.push(chargeCount+' small bank charges skipped ('+fmt(chargeSum)+' total — add one "Bank charges" expense if you want them tracked)');
   if(badDate) bits.push(badDate+' unreadable date'+(badDate===1?'':'s'));
   toast(bits.join(' · '));
 }
