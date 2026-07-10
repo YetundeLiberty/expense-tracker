@@ -58,8 +58,8 @@
   .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .form-grid .full{grid-column:1/-1}
   label{font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px}
-  input,select{width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:9px;font-size:14px;background:#fbfcfe;color:var(--ink);font-family:inherit}
-  input:focus,select:focus{outline:none;border-color:var(--accent);background:#fff}
+  input,select,textarea{width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:9px;font-size:14px;background:#fbfcfe;color:var(--ink);font-family:inherit}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);background:#fff}
 
   /* filters */
   .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
@@ -389,6 +389,11 @@
       <div class="full">
         <label>Account number</label>
         <input type="text" id="prAcct" placeholder="e.g. 0123456789" maxlength="20">
+      </div>
+      <div class="full">
+        <label>My own account numbers (all your accounts, comma-separated)</label>
+        <textarea id="prOwnAccts" rows="2" placeholder="e.g. 1013732501, 0029703354, 5992147907"></textarea>
+        <p style="font-size:11.5px;color:var(--muted);margin-top:4px">Used by statement imports: transfers you make to these accounts are money moving between your own pockets — they are skipped, not recorded as expenses.</p>
       </div>
     </div>
     <p style="font-size:11.5px;color:var(--muted);margin-top:10px">Stored only on this device, like everything else in the tracker.</p>
@@ -990,6 +995,7 @@ function openProfile(){
   $('prBank').value = p.bank||'';
   $('prBankCode').value = p.bankCode||'';
   $('prAcct').value = p.acct||'';
+  $('prOwnAccts').value = p.ownAccts||'';
   profDraftPhoto = p.photo || null;
   $('prPhoto').value = '';
   renderProfPreview();
@@ -1003,7 +1009,8 @@ function saveProfile(){
     photo: profDraftPhoto,
     bank: $('prBank').value.trim(),
     bankCode: padCode($('prBankCode').value) || $('prBankCode').value.trim(),
-    acct: $('prAcct').value.trim()
+    acct: $('prAcct').value.trim(),
+    ownAccts: $('prOwnAccts').value.trim()
   };
   persist(); closeModal('profileModal'); renderProfileHeader();
   if($('settingsModal').classList.contains('open')){
@@ -1787,7 +1794,8 @@ const IMPORT_FIELDS = {
     {key:'note',   label:'Description / Narration', req:false, guess:/narrat|desc|detail|remark|particular|reference/i},
     {key:'debit',  label:'Debit / Money out',       req:true,  guess:/debit|withdraw|money out|\bdr\b|amount/i, not:/credit|balance/i},
     {key:'status', label:'Status (optional)',       req:false, guess:/status/i},
-    {key:'ttype',  label:'Transaction type (optional)', req:false, guess:/^type$|transaction.?type|trans.?type/i}
+    {key:'ttype',  label:'Transaction type (optional)', req:false, guess:/^type$|transaction.?type|trans.?type/i},
+    {key:'bacct',  label:'Beneficiary account (optional)', req:false, guess:/nuban|benef.*acc|acct.*n(o|um)|account.?n(o|um)/i, not:/source|name/i}
   ]
 };
 function parseDateFlex(s){
@@ -1901,9 +1909,16 @@ function applyStatementImport(mapped, method, cat){
     if(seen[k] > 0){ seen[k]--; return true; }
     return false;
   };
-  const shiftDay = (ds, delta)=>{
-    const d = new Date(ds+'T00:00:00'); d.setDate(d.getDate()+delta); return dToStr(d);
-  };
+
+  // own accounts: transfers to these are money moving between the owner's
+  // pockets, not spending
+  const ownAccts = String((state.profile&&state.profile.ownAccts)||'')
+    .split(/[^0-9]+/).filter(a=>a.length>=8);
+  if(state.profile && state.profile.acct){
+    const a = String(state.profile.acct).replace(/\D/g,'');
+    if(a.length>=8 && !ownAccts.includes(a)) ownAccts.push(a);
+  }
+  let ownTransfers = 0;
 
   mapped.forEach(m=>{
     // failed / reversed / pending transactions never left the account
@@ -1916,7 +1931,16 @@ function applyStatementImport(mapped, method, cat){
     if(!date){ badDate++; return; }
     // tiny bank charges (stamp duty, SMS, VAT) are summed, not imported row by row
     if(m.ttype && /vat|sms|levy|charge|duty|stamp|fee/i.test(m.ttype)){ chargeCount++; chargeSum+=amt; return; }
-    if(consume(date, amt) || consume(shiftDay(date,-1), amt) || consume(shiftDay(date,1), amt)){ skippedDup++; return; }
+    // transfer to one of the owner's own accounts → not an expense
+    if(ownAccts.length){
+      const bd = String(m.bacct||'').replace(/\D/g,'');
+      if((bd && ownAccts.includes(bd)) || ownAccts.some(a=>String(m.note||'').includes(a))){ ownTransfers++; return; }
+    }
+    // duplicate only if an entry with this exact date + amount is already in
+    // the tracker (count-aware: two real same-day payments need two entries).
+    // Successful debits are otherwise ALWAYS recorded — same account or not,
+    // same narration or not.
+    if(consume(date, amt)){ skippedDup++; return; }
     state.expenses.push({
       id: 'e'+Date.now()+Math.random().toString(36).slice(2,6),
       amount: amt, date, cat, method, note: m.note||''
@@ -1929,6 +1953,7 @@ function applyStatementImport(mapped, method, cat){
   render();
   const bits = [added+' expense'+(added===1?'':'s')+' imported'];
   if(skippedDup) bits.push(skippedDup+' already in your tracker — skipped');
+  if(ownTransfers) bits.push(ownTransfers+' transfer'+(ownTransfers===1?'':'s')+' between your own accounts — skipped');
   if(skippedFailed) bits.push(skippedFailed+' failed/reversed — skipped');
   if(skippedIn) bits.push(skippedIn+' money-in/blank row'+(skippedIn===1?'':'s')+' skipped');
   if(chargeCount) bits.push(chargeCount+' small bank charges skipped ('+fmt(chargeSum)+' total — add one "Bank charges" expense if you want them tracked)');
