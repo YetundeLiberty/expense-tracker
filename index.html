@@ -473,12 +473,12 @@
   <div class="modal" style="max-width:420px">
     <h3 id="payTitle">Record Payment</h3>
     <input type="hidden" id="payPayeeId">
-    <input type="hidden" id="payLinkId">
     <div id="payLinkBox" style="display:none;background:var(--accent-soft);border-radius:10px;padding:10px 12px;margin-bottom:12px">
       <label style="display:flex;gap:8px;align-items:flex-start;margin:0;font-size:13px;color:var(--ink);cursor:pointer">
         <input type="checkbox" id="payLinkChk" checked style="width:auto;margin-top:2px">
         <span id="payLinkTxt"></span>
       </label>
+      <select id="payLinkSel" style="margin-top:8px"></select>
     </div>
     <div class="form-grid">
       <div>
@@ -1424,19 +1424,27 @@ function payPayee(id){
   $('payMethod').innerHTML = methodOptionsHtml();
   if(state.methods.includes('Bank transfer')) $('payMethod').value = 'Bank transfer';
   clearOther('payMethod','payMethodOther');
-  // if an unlinked expense with this amount already exists this month
-  // (e.g. it came in via a statement import), offer to link it instead of
-  // creating a double posting
-  const existing = state.expenses.find(e=>
-    !e.payeeId && keyOfDateStr(e.date)===mk && Math.abs(e.amount - p.amount) < 0.005
-  );
-  $('payLinkId').value = existing ? existing.id : '';
-  if(existing){
-    $('payLinkChk').checked = true;
-    $('payLinkTxt').innerHTML = 'An entry of <b>'+fmt(existing.amount)+'</b> from <b>'+
-      new Date(existing.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'})+
-      '</b>'+(existing.note?' ("'+esc(String(existing.note).slice(0,40))+'")':'')+
-      ' is already in your expenses. Mark it as this payment instead of creating a new entry.';
+  // offer linking an existing unlinked expense from this month (e.g. one that
+  // came in via a statement import) instead of creating a double posting.
+  // Exact-amount matches are listed first and pre-ticked.
+  const candidates = state.expenses
+    .filter(e=>!e.payeeId && keyOfDateStr(e.date)===mk)
+    .sort((a,b)=>{
+      const ax = Math.abs(a.amount - p.amount) < 0.005 ? 0 : 1;
+      const bx = Math.abs(b.amount - p.amount) < 0.005 ? 0 : 1;
+      return ax - bx || b.date.localeCompare(a.date);
+    });
+  if(candidates.length){
+    const exact = Math.abs(candidates[0].amount - p.amount) < 0.005;
+    $('payLinkChk').checked = exact;
+    $('payLinkTxt').textContent = exact
+      ? 'A matching entry is already in your expenses. Mark it as this payment instead of creating a new one:'
+      : 'Already made this payment? Tick to mark an existing entry as it instead of creating a new one:';
+    $('payLinkSel').innerHTML = candidates.map(e=>{
+      const d = new Date(e.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'});
+      const label = d+' — '+fmt(e.amount)+(e.note?' — '+String(e.note).slice(0,45):'');
+      return '<option value="'+e.id+'">'+esc(label)+'</option>';
+    }).join('');
     $('payLinkBox').style.display = 'block';
   }else{
     $('payLinkBox').style.display = 'none';
@@ -1446,8 +1454,8 @@ function payPayee(id){
 function confirmPay(){
   const p = state.payees.find(x=>x.id===$('payPayeeId').value); if(!p) return;
   // link the existing expense instead of creating a duplicate
-  if($('payLinkBox').style.display !== 'none' && $('payLinkChk').checked && $('payLinkId').value){
-    const ex = state.expenses.find(e=>e.id===$('payLinkId').value);
+  if($('payLinkBox').style.display !== 'none' && $('payLinkChk').checked && $('payLinkSel').value){
+    const ex = state.expenses.find(e=>e.id===$('payLinkSel').value);
     if(ex && !ex.payeeId){
       ex.payeeId = p.id;
       persist(); closeModal('payModal'); render();
@@ -2030,7 +2038,7 @@ function applyStatementImport(mapped, method, cat){
     const a = String(p.acct||'').replace(/\D/g,'');
     if(a.length>=8) payeeByAcct[a] = p;
   });
-  let matchedPayees = 0;
+  let matchedPayees = 0, linkedExisting = 0;
 
   mapped.forEach(m=>{
     // failed / reversed / pending transactions never left the account
@@ -2052,9 +2060,18 @@ function applyStatementImport(mapped, method, cat){
     // the tracker (count-aware: two real same-day payments need two entries).
     // Successful debits are otherwise ALWAYS recorded — same account or not,
     // same narration or not.
-    if(consume(date, amt)){ skippedDup++; return; }
     const bd = String(m.bacct||'').replace(/\D/g,'');
     const pMatch = bd ? payeeByAcct[bd] : null;
+    if(consume(date, amt)){
+      skippedDup++;
+      // self-heal: the row is already in the tracker (entered by hand or an
+      // earlier import) but not linked to its payee — link it now
+      if(pMatch){
+        const ex = state.expenses.find(e=>!e.payeeId && e.date===date && Math.abs(e.amount-amt)<0.005);
+        if(ex){ ex.payeeId = pMatch.id; linkedExisting++; }
+      }
+      return;
+    }
     const exp = {
       id: 'e'+Date.now()+Math.random().toString(36).slice(2,6),
       amount: amt, date, method,
@@ -2071,6 +2088,7 @@ function applyStatementImport(mapped, method, cat){
   render();
   const bits = [added+' expense'+(added===1?'':'s')+' imported'];
   if(matchedPayees) bits.push(matchedPayees+' matched to your payees — marked as paid');
+  if(linkedExisting) bits.push(linkedExisting+' existing entr'+(linkedExisting===1?'y':'ies')+' linked to payees — marked as paid');
   if(skippedDup) bits.push(skippedDup+' already in your tracker — skipped');
   if(ownTransfers) bits.push(ownTransfers+' transfer'+(ownTransfers===1?'':'s')+' between your own accounts — skipped');
   if(skippedFailed) bits.push(skippedFailed+' failed/reversed — skipped');
