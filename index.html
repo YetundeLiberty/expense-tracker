@@ -328,6 +328,26 @@
       </div>
     </div>
     <p style="font-size:11.5px;color:var(--muted);margin-top:4px">Each day, the amount moves from your wallet into savings automatically (catching up when you open the app). Days when the wallet is too low are skipped.</p>
+    <h3 style="margin-top:16px;font-size:14px">&#127919; Savings goal</h3>
+    <div id="svGoalView"></div>
+    <div class="form-grid">
+      <div class="full">
+        <label>Goal name</label>
+        <input type="text" id="svGoalName" placeholder="e.g. Legoland Dubai Fund" maxlength="40">
+      </div>
+      <div>
+        <label>Target amount</label>
+        <input type="number" id="svGoalAmt" min="1" step="0.01" placeholder="e.g. 22000000">
+      </div>
+      <div>
+        <label>Target date (optional)</label>
+        <input type="date" id="svGoalDate">
+      </div>
+      <div class="full" style="text-align:right">
+        <button class="btn btn-danger btn-sm" id="svGoalClear" style="display:none" onclick="clearSavingsGoal()">&#128465;&#65039; Remove goal</button>
+        <button class="btn btn-primary btn-sm" onclick="saveSavingsGoal()">&#128190; Save goal</button>
+      </div>
+    </div>
     <h3 style="margin-top:16px;font-size:14px">Move money</h3>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <input type="number" id="savMoveAmt" min="0.01" step="0.01" placeholder="Amount" style="flex:1;min-width:110px">
@@ -1081,8 +1101,48 @@ function openSavings(){
   $('savDaily').value = state.savings.daily || '';
   $('savEnabled').checked = !!state.savings.enabled;
   $('savMoveAmt').value = '';
+  const g = state.savings.goal;
+  $('svGoalName').value = g ? (g.name||'') : '';
+  $('svGoalAmt').value = g ? (g.amount||'') : '';
+  $('svGoalDate').value = g ? (g.date||'') : '';
+  $('svGoalClear').style.display = g ? 'inline-flex' : 'none';
   renderSavings();
   $('savingsModal').classList.add('open');
+}
+function goalPace(){
+  // returns {pct, line} for the current goal, or null
+  const g = state.savings.goal;
+  if(!g || !(g.amount>0)) return null;
+  const bal = savingsBalance();
+  const pct = Math.max(0, Math.min(100, bal/g.amount*100));
+  let line = fmt(bal)+' of '+fmt(g.amount)+' ('+pct.toFixed(1)+'%)';
+  if(bal >= g.amount) return {pct:100, line: line+' — goal reached! 🎉'};
+  if(g.date){
+    const days = Math.ceil((new Date(g.date+'T00:00:00') - new Date(todayStr()+'T00:00:00')) / 86400000);
+    if(days > 0){
+      const need = (g.amount - bal) / days;
+      const daily = state.savings.enabled ? (state.savings.daily||0) : 0;
+      line += ' · needs '+fmt(need)+'/day for '+new Date(g.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
+      line += daily >= need ? ' — on pace ✓' : (daily>0 ? ' — current auto-save is '+fmt(daily)+'/day' : ' — auto-save is off');
+    }else{
+      line += ' · target date has passed — update it';
+    }
+  }
+  return {pct, line};
+}
+function saveSavingsGoal(){
+  const name = $('svGoalName').value.trim();
+  const amount = parseFloat($('svGoalAmt').value);
+  if(!amount || amount <= 0){ toast('Enter the target amount'); return; }
+  state.savings.goal = { name: name || 'Savings goal', amount, date: $('svGoalDate').value || '' };
+  persist(); $('svGoalClear').style.display = 'inline-flex';
+  renderSavings(); render();
+  toast('🎯 Goal saved — '+state.savings.goal.name);
+}
+function clearSavingsGoal(){
+  if(!confirm('Remove the savings goal? Your saved money stays untouched.')) return;
+  state.savings.goal = null;
+  persist(); openSavings(); render();
 }
 function renderSavings(){
   const s = state.savings;
@@ -1096,6 +1156,13 @@ function renderSavings(){
       <div style="font-size:26px;font-weight:800;color:var(--ok)">${fmt(bal)}</div>
       <div style="font-size:12px;color:var(--muted);margin-top:2px">${fmt(thisMonth)} added this month${s.skippedTotal?' &middot; '+s.skippedTotal+' day'+(s.skippedTotal===1?'':'s')+' skipped (low wallet)':''}</div>
     </div>`;
+  const gp = goalPace();
+  $('svGoalView').innerHTML = gp ? `
+    <div style="background:var(--accent-soft);border-radius:10px;padding:10px 12px;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:700">&#127919; ${esc((state.savings.goal.name)||'Goal')}</div>
+      <div class="budget-bar" style="margin:8px 0 6px"><div class="budget-fill" style="width:${gp.pct}%;background:var(--accent)"></div></div>
+      <div style="font-size:12px;color:var(--muted)">${gp.line}</div>
+    </div>` : '';
   const list = [...(s.entries||[])].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,60);
   $('savList').innerHTML = list.length ? list.map(e=>`
     <div class="cat-row">
@@ -1231,6 +1298,8 @@ function openInsights(){
     advice.push('No auto-save is running. Even '+fmt(suggest)+'/day (about 10% of your daily spend) would put away '+fmt(suggest*30)+' a month — set it up in 🐖 Savings.');
   }
   if(state.savings.enabled && savedThisMonth>0) advice.push('You saved '+fmt(savedThisMonth)+' this month with auto-save — that is '+(total>0?(savedThisMonth/total*100).toFixed(0)+'% of what you spent':'building')+'. Keep it going.');
+  const gp = goalPace();
+  if(gp) advice.push('🎯 '+state.savings.goal.name+': '+gp.line);
   if(walletBalance() < avg*7 && walletBalance() >= 0 && avg>0) advice.push('Wallet holds less than a week of spending ('+fmt(walletBalance())+'). Plan a top-up.');
   if(walletBalance() < 0) advice.push('⚠️ Wallet is negative ('+fmt(walletBalance())+') — record your latest funding, or some expenses were paid from money the tracker has not seen.');
   if(!advice.length) advice.push('Steady month — nothing alarming. Review the category table and set a budget in Settings to get sharper advice.');
@@ -2583,7 +2652,7 @@ function render(){
   const savBal = savingsBalance();
   $('stats').innerHTML = `
     <div class="stat"><div class="lbl">Wallet balance</div><div class="val" style="color:${balCol}">${fmt(bal)}</div><div class="sub">${funded ? fmt(funded)+' funded to date' : '<a href="#" onclick="openWallet();return false" style="color:var(--accent);font-weight:600">Set starting amount &rarr;</a>'}</div></div>
-    <div class="stat"><div class="lbl">Savings</div><div class="val" style="color:var(--ok)">${fmt(savBal)}</div><div class="sub">${state.savings.enabled && state.savings.daily>0 ? fmt(state.savings.daily)+'/day auto-save ON' : '<a href="#" onclick="openSavings();return false" style="color:var(--accent);font-weight:600">Set up auto-save &rarr;</a>'}</div></div>
+    <div class="stat"><div class="lbl">Savings</div><div class="val" style="color:var(--ok)">${fmt(savBal)}</div><div class="sub">${state.savings.enabled && state.savings.daily>0 ? fmt(state.savings.daily)+'/day auto-save ON' : '<a href="#" onclick="openSavings();return false" style="color:var(--accent);font-weight:600">Set up auto-save &rarr;</a>'}</div>${(()=>{const gp=goalPace(); return gp ? '<div class="budget-bar" style="margin-top:8px"><div class="budget-fill" style="width:'+gp.pct+'%;background:var(--accent)"></div></div><div class="sub">&#127919; '+esc(state.savings.goal.name)+': '+gp.pct.toFixed(1)+'%</div>' : '';})()}</div>
     <div class="stat"><div class="lbl">Total spent</div><div class="val">${fmt(total)}</div><div class="sub">${monthExps.length} expense${monthExps.length===1?'':'s'} this month</div></div>
     <div class="stat"><div class="lbl">Daily average</div><div class="val">${fmt(avgDay)}</div><div class="sub">over ${daysElapsed} day${daysElapsed===1?'':'s'}</div></div>
     <div class="stat"><div class="lbl">Top category</div><div class="val" style="font-size:17px">${topKey?esc(byGroup[topKey].name):'—'}</div><div class="sub">${topKey?fmt(byGroup[topKey].total):'no expenses yet'}</div></div>
