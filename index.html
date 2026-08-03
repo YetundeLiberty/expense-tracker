@@ -605,6 +605,12 @@
     <div style="text-align:right;margin-top:12px">
       <button class="btn btn-primary" onclick="addFunding()">&#10133; Add Funds</button>
     </div>
+    <h3 style="margin-top:18px;font-size:14px">Correct the balance</h3>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="number" id="wSetBal" step="0.01" placeholder="What you actually hold right now" style="flex:1;min-width:150px">
+      <button class="btn btn-ghost btn-sm" onclick="setWalletBalance()">&#10003; Set actual balance</button>
+    </div>
+    <p style="font-size:11.5px;color:var(--muted);margin-top:6px">Type your real total (all accounts + cash). One adjustment entry is added for the difference — useful when income was never recorded and the wallet drifted from reality.</p>
     <h3 style="margin-top:20px;font-size:14px">Funding history</h3>
     <div id="fundList" style="max-height:200px;overflow:auto"></div>
     <div class="actions">
@@ -1690,6 +1696,23 @@ function deleteFunding(id){
   if(!confirm('Remove this funding entry? Your balance will drop by its amount.')) return;
   state.wallet.fundings = state.wallet.fundings.filter(f=>f.id!==id);
   persist(); renderWallet(); render(); toast('Funding entry removed');
+}
+function setWalletBalance(){
+  const v = $('wSetBal').value.trim();
+  if(v === ''){ toast('Enter the amount your wallet really holds'); return; }
+  const target = parseFloat(v);
+  if(isNaN(target)){ toast('Enter a valid amount'); return; }
+  const diff = +(target - walletBalance()).toFixed(2);
+  if(Math.abs(diff) < 0.005){ toast('Wallet already matches — nothing to adjust'); return; }
+  state.wallet.fundings.push({
+    id: 'w'+Date.now()+Math.random().toString(36).slice(2,6),
+    amount: diff,
+    date: todayStr(),
+    note: 'Balance correction'
+  });
+  persist(); $('wSetBal').value='';
+  renderWallet(); render();
+  toast('Balance set to '+fmt(walletBalance())+' ('+(diff>0?'+':'−')+fmt(Math.abs(diff))+' adjustment)');
 }
 
 function closeModal(id){ $(id).classList.remove('open'); }
