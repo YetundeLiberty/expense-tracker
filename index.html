@@ -1307,7 +1307,8 @@ function openInsights(){
   const gp = goalPace();
   if(gp) advice.push('🎯 '+state.savings.goal.name+': '+gp.line);
   if(walletBalance() < avg*7 && walletBalance() >= 0 && avg>0) advice.push('Wallet holds less than a week of spending ('+fmt(walletBalance())+'). Plan a top-up.');
-  if(walletBalance() < 0) advice.push('⚠️ Wallet is negative ('+fmt(walletBalance())+') — record your latest funding, or some expenses were paid from money the tracker has not seen.');
+  const extM = externalUsedInMonth(mk);
+  if(extM > 0) advice.push('💳 External funds carried '+fmt(extM)+' of this month\'s spending ('+fmt(externalOutstanding())+' outstanding in total). Record inflows as Wallet top-ups to repay — or trim next month\'s budget to close the gap.');
   if(!advice.length) advice.push('Steady month — nothing alarming. Review the category table and set a budget in Settings to get sharper advice.');
 
   const kpi = (label,val,sub) => `<div class="stat" style="box-shadow:none"><div class="lbl">${label}</div><div class="val" style="font-size:18px">${val}</div><div class="sub">${sub||''}</div></div>`;
@@ -1654,6 +1655,26 @@ function undoPayment(id){
 function walletFunded(){ return state.wallet.fundings.reduce((s,f)=>s+f.amount,0); }
 function savingsBalance(){ return (state.savings.entries||[]).reduce((s,e)=> s + (e.type==='withdraw' ? -e.amount : e.amount), 0); }
 function walletBalance(){ return walletFunded() - state.expenses.reduce((s,e)=>s+e.amount,0) - savingsBalance(); }
+// envelope model: the wallet never displays below zero — spending beyond it
+// is carried by the "External fund" (money that came from somewhere else)
+function walletShown(){ return Math.max(0, walletBalance()); }
+function externalOutstanding(){ return Math.max(0, -walletBalance()); }
+function balanceAsOf(ds){
+  let r = 0;
+  state.wallet.fundings.forEach(f=>{ if(f.date<=ds) r += f.amount; });
+  state.expenses.forEach(e=>{ if(e.date<=ds) r -= e.amount; });
+  (state.savings.entries||[]).forEach(s=>{ if(s.date<=ds) r += (s.type==='withdraw' ? s.amount : -s.amount); });
+  return r;
+}
+function externalUsedInMonth(mk){
+  const y = +mk.slice(0,4), mo = +mk.slice(5,7);
+  const dayBeforeMonth = dToStr(new Date(y, mo-1, 0));
+  const monthEnd = dToStr(new Date(y, mo, 0));
+  const endStr = monthEnd < todayStr() ? monthEnd : todayStr();
+  const deficitBefore = Math.max(0, -balanceAsOf(dayBeforeMonth));
+  const deficitAfter = Math.max(0, -balanceAsOf(endStr));
+  return Math.max(0, deficitAfter - deficitBefore);
+}
 function openWallet(){
   $('wAmt').value=''; $('wNote').value=''; $('wDate').value = todayStr();
   renderWallet();
@@ -1661,12 +1682,13 @@ function openWallet(){
 }
 function renderWallet(){
   const bal = walletBalance(), funded = walletFunded();
-  const col = bal < 0 ? 'var(--danger)' : 'var(--ok)';
+  const ext = externalOutstanding();
   $('walletSummary').innerHTML = `
     <div style="background:var(--accent-soft);border-radius:12px;padding:14px 16px">
       <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Current balance</div>
-      <div style="font-size:26px;font-weight:800;color:${col}">${fmt(bal)}</div>
+      <div style="font-size:26px;font-weight:800;color:var(--ok)">${fmt(walletShown())}</div>
       <div style="font-size:12px;color:var(--muted);margin-top:2px">${fmt(funded)} funded &middot; ${fmt(funded-bal)} spent all-time</div>
+      ${ext>0 ? `<div style="font-size:12.5px;font-weight:700;color:var(--danger);margin-top:6px">&#128179; External fund covering ${fmt(ext)} — top up to repay</div>` : ''}
     </div>`;
   const list = [...state.wallet.fundings].sort((a,b)=>b.date.localeCompare(a.date));
   $('fundList').innerHTML = list.length ? list.map(f=>`
@@ -2689,10 +2711,12 @@ function render(){
     </div>`;
   }
   const bal = walletBalance(), funded = walletFunded();
-  const balCol = bal < 0 ? 'var(--danger)' : 'var(--ink)';
+  const extTotal = externalOutstanding();
+  const extMonth = externalUsedInMonth(mk);
   const savBal = savingsBalance();
   $('stats').innerHTML = `
-    <div class="stat"><div class="lbl">Wallet balance</div><div class="val" style="color:${balCol}">${fmt(bal)}</div><div class="sub">${funded ? fmt(funded)+' funded to date' : '<a href="#" onclick="openWallet();return false" style="color:var(--accent);font-weight:600">Set starting amount &rarr;</a>'}</div></div>
+    <div class="stat"><div class="lbl">Wallet balance</div><div class="val">${fmt(walletShown())}</div><div class="sub">${funded ? fmt(funded)+' funded to date' : '<a href="#" onclick="openWallet();return false" style="color:var(--accent);font-weight:600">Set starting amount &rarr;</a>'}</div></div>
+    ${extTotal>0 || extMonth>0 ? `<div class="stat"><div class="lbl">External fund (borrowed)</div><div class="val" style="color:var(--danger)">${fmt(extMonth)}</div><div class="sub">this month · ${fmt(extTotal)} total outstanding — <a href="#" onclick="openWallet();return false" style="color:var(--accent);font-weight:600">top up to repay</a></div></div>` : ''}
     <div class="stat"><div class="lbl">Savings</div><div class="val" style="color:var(--ok)">${fmt(savBal)}</div><div class="sub">${state.savings.enabled && state.savings.daily>0 ? fmt(state.savings.daily)+'/day auto-save ON' : '<a href="#" onclick="openSavings();return false" style="color:var(--accent);font-weight:600">Set up auto-save &rarr;</a>'}</div>${(()=>{const gp=goalPace(); return gp ? '<div class="budget-bar" style="margin-top:8px"><div class="budget-fill" style="width:'+gp.pct+'%;background:var(--accent)"></div></div><div class="sub">&#127919; '+esc(state.savings.goal.name)+': '+gp.pct.toFixed(1)+'%</div>' : '';})()}</div>
     <div class="stat"><div class="lbl">Total spent</div><div class="val">${fmt(total)}</div><div class="sub">${monthExps.length} expense${monthExps.length===1?'':'s'} this month</div></div>
     <div class="stat"><div class="lbl">Daily average</div><div class="val">${fmt(avgDay)}</div><div class="sub">over ${daysElapsed} day${daysElapsed===1?'':'s'}</div></div>
