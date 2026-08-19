@@ -1647,9 +1647,14 @@ function unlinkOrDelete(exp, name){
     return 'deleted';
   }
   exp.payeeId = undefined;
-  // restore the original narration if the link rewrote it
+  // restore the original narration if the link rewrote it, and re-guess
+  // the category from it (instead of leaving it stuck under Payee)
   if(exp.note && exp.note.indexOf(' · ') > -1 && /^Payee for /.test(exp.note)){
     exp.note = exp.note.split(' · ').slice(1).join(' · ');
+    if(exp.cat === 'payments'){
+      const g = guessCategory(exp.note);
+      if(g) exp.cat = g;
+    }
   }
   return 'unlinked';
 }
