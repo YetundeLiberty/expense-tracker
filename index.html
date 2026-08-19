@@ -1308,7 +1308,7 @@ function openInsights(){
   if(gp) advice.push('🎯 '+state.savings.goal.name+': '+gp.line);
   if(walletBalance() < avg*7 && walletBalance() >= 0 && avg>0) advice.push('Wallet holds less than a week of spending ('+fmt(walletBalance())+'). Plan a top-up.');
   const extM = externalUsedInMonth(mk);
-  if(extM > 0) advice.push('💳 External funds carried '+fmt(extM)+' of this month\'s spending ('+fmt(externalOutstanding())+' outstanding in total). Record inflows as Wallet top-ups to repay — or trim next month\'s budget to close the gap.');
+  if(extM > 0) advice.push('💳 This month overshot its own money by '+fmt(extM)+' — frozen as its excess (all months: '+fmt(externalOutstanding())+'). Each month starts clean; see the by-month breakdown in Wallet.');
   if(!advice.length) advice.push('Steady month — nothing alarming. Review the category table and set a budget in Settings to get sharper advice.');
 
   const kpi = (label,val,sub) => `<div class="stat" style="box-shadow:none"><div class="lbl">${label}</div><div class="val" style="font-size:18px">${val}</div><div class="sub">${sub||''}</div></div>`;
@@ -1654,42 +1654,59 @@ function undoPayment(id){
 // ---------- wallet ----------
 function walletFunded(){ return state.wallet.fundings.reduce((s,f)=>s+f.amount,0); }
 function savingsBalance(){ return (state.savings.entries||[]).reduce((s,e)=> s + (e.type==='withdraw' ? -e.amount : e.amount), 0); }
-function walletBalance(){ return walletFunded() - state.expenses.reduce((s,e)=>s+e.amount,0) - savingsBalance(); }
-// envelope model: the wallet never displays below zero — spending beyond it
-// is carried by the "External fund" (money that came from somewhere else)
-function walletShown(){ return Math.max(0, walletBalance()); }
-function externalOutstanding(){ return Math.max(0, -walletBalance()); }
-function balanceAsOf(ds){
-  let r = 0;
-  state.wallet.fundings.forEach(f=>{ if(f.date<=ds) r += f.amount; });
-  state.expenses.forEach(e=>{ if(e.date<=ds) r -= e.amount; });
-  (state.savings.entries||[]).forEach(s=>{ if(s.date<=ds) r += (s.type==='withdraw' ? s.amount : -s.amount); });
-  return r;
+// Monthly envelope ledger — each month stands alone:
+// available = last month's POSITIVE leftover + this month's top-ups − savings
+// spending beyond that is frozen as THIS month's excess (external money);
+// a new month always starts clean — top-ups never repay old months.
+function walletLedger(){
+  const months = new Set();
+  state.wallet.fundings.forEach(f=>months.add(keyOfDateStr(f.date)));
+  state.expenses.forEach(e=>months.add(keyOfDateStr(e.date)));
+  (state.savings.entries||[]).forEach(s=>months.add(keyOfDateStr(s.date)));
+  const keys = [...months].sort();
+  const byMonth = {};
+  let carry = 0, excessTotal = 0;
+  keys.forEach(mk=>{
+    const funded = state.wallet.fundings.filter(f=>keyOfDateStr(f.date)===mk).reduce((s,f)=>s+f.amount,0);
+    const spent = state.expenses.filter(e=>keyOfDateStr(e.date)===mk).reduce((s,e)=>s+e.amount,0);
+    const saved = (state.savings.entries||[]).filter(x=>keyOfDateStr(x.date)===mk).reduce((s,x)=>s+(x.type==='withdraw'?-x.amount:x.amount),0);
+    const end = carry + funded - saved - spent;
+    const excess = end < 0 ? -end : 0;
+    byMonth[mk] = { carryIn: carry, funded, spent, saved, excess, end: Math.max(0, end) };
+    excessTotal += excess;
+    carry = Math.max(0, end);
+  });
+  return { byMonth, carry, excessTotal };
 }
+function walletBalance(){ return walletLedger().carry; }
+function walletShown(){ return walletBalance(); }
+function externalOutstanding(){ return walletLedger().excessTotal; }
 function externalUsedInMonth(mk){
-  const y = +mk.slice(0,4), mo = +mk.slice(5,7);
-  const dayBeforeMonth = dToStr(new Date(y, mo-1, 0));
-  const monthEnd = dToStr(new Date(y, mo, 0));
-  const endStr = monthEnd < todayStr() ? monthEnd : todayStr();
-  const deficitBefore = Math.max(0, -balanceAsOf(dayBeforeMonth));
-  const deficitAfter = Math.max(0, -balanceAsOf(endStr));
-  return Math.max(0, deficitAfter - deficitBefore);
+  const m = walletLedger().byMonth[mk];
+  return m ? m.excess : 0;
 }
+function monthLabel(mk){ return new Date(mk+'-01T00:00:00').toLocaleDateString(undefined,{month:'long',year:'numeric'}); }
 function openWallet(){
   $('wAmt').value=''; $('wNote').value=''; $('wDate').value = todayStr();
   renderWallet();
   $('walletModal').classList.add('open');
 }
 function renderWallet(){
-  const bal = walletBalance(), funded = walletFunded();
-  const ext = externalOutstanding();
+  const led = walletLedger();
+  const funded = walletFunded();
+  const exMonths = Object.keys(led.byMonth).filter(k=>led.byMonth[k].excess>0).sort().reverse();
   $('walletSummary').innerHTML = `
     <div style="background:var(--accent-soft);border-radius:12px;padding:14px 16px">
-      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Current balance</div>
-      <div style="font-size:26px;font-weight:800;color:var(--ok)">${fmt(walletShown())}</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:2px">${fmt(funded)} funded &middot; ${fmt(funded-bal)} spent all-time</div>
-      ${ext>0 ? `<div style="font-size:12.5px;font-weight:700;color:var(--danger);margin-top:6px">&#128179; External fund covering ${fmt(ext)} — top up to repay</div>` : ''}
-    </div>`;
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Available this month</div>
+      <div style="font-size:26px;font-weight:800;color:var(--ok)">${fmt(led.carry)}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">${fmt(funded)} funded all-time &middot; positive leftovers roll forward, overspends freeze in their month</div>
+    </div>
+    ${exMonths.length ? `
+    <div style="background:#fdecec;border-radius:12px;padding:12px 16px;margin-top:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:.4px">&#128179; Excess spend by month</div>
+      ${exMonths.map(k=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid #f6d5d5"><span>${monthLabel(k)}</span><b style="color:var(--danger)">${fmt(led.byMonth[k].excess)}</b></div>`).join('')}
+      <div style="display:flex;justify-content:space-between;font-size:13.5px;padding-top:6px;font-weight:800"><span>Total (external money)</span><span style="color:var(--danger)">${fmt(led.excessTotal)}</span></div>
+    </div>` : ''}`;
   const list = [...state.wallet.fundings].sort((a,b)=>b.date.localeCompare(a.date));
   $('fundList').innerHTML = list.length ? list.map(f=>`
     <div class="cat-row">
@@ -2716,7 +2733,7 @@ function render(){
   const savBal = savingsBalance();
   $('stats').innerHTML = `
     <div class="stat"><div class="lbl">Wallet balance</div><div class="val">${fmt(walletShown())}</div><div class="sub">${funded ? fmt(funded)+' funded to date' : '<a href="#" onclick="openWallet();return false" style="color:var(--accent);font-weight:600">Set starting amount &rarr;</a>'}</div></div>
-    ${extTotal>0 || extMonth>0 ? `<div class="stat"><div class="lbl">External fund (borrowed)</div><div class="val" style="color:var(--danger)">${fmt(extMonth)}</div><div class="sub">this month · ${fmt(extTotal)} total outstanding — <a href="#" onclick="openWallet();return false" style="color:var(--accent);font-weight:600">top up to repay</a></div></div>` : ''}
+    ${extTotal>0 || extMonth>0 ? `<div class="stat"><div class="lbl">Excess spend (external)</div><div class="val" style="color:var(--danger)">${fmt(extMonth)}</div><div class="sub">this month · ${fmt(extTotal)} all months — <a href="#" onclick="openWallet();return false" style="color:var(--accent);font-weight:600">see by month</a></div></div>` : ''}
     <div class="stat"><div class="lbl">Savings</div><div class="val" style="color:var(--ok)">${fmt(savBal)}</div><div class="sub">${state.savings.enabled && state.savings.daily>0 ? fmt(state.savings.daily)+'/day auto-save ON' : '<a href="#" onclick="openSavings();return false" style="color:var(--accent);font-weight:600">Set up auto-save &rarr;</a>'}</div>${(()=>{const gp=goalPace(); return gp ? '<div class="budget-bar" style="margin-top:8px"><div class="budget-fill" style="width:'+gp.pct+'%;background:var(--accent)"></div></div><div class="sub">&#127919; '+esc(state.savings.goal.name)+': '+gp.pct.toFixed(1)+'%</div>' : '';})()}</div>
     <div class="stat"><div class="lbl">Total spent</div><div class="val">${fmt(total)}</div><div class="sub">${monthExps.length} expense${monthExps.length===1?'':'s'} this month</div></div>
     <div class="stat"><div class="lbl">Daily average</div><div class="val">${fmt(avgDay)}</div><div class="sub">over ${daysElapsed} day${daysElapsed===1?'':'s'}</div></div>
