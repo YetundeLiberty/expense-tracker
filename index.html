@@ -1631,13 +1631,27 @@ function viewPayeeGroup(){
 function undoPayeeExp(id){
   const e = state.expenses.find(x=>x.id===id); if(!e) return;
   const p = state.payees.find(x=>x.id===e.payeeId);
-  if(!confirm('Undo the '+fmt(e.amount)+' payment to '+(p?p.name:'this payee')+'? The expense is deleted and your wallet balance restored.')) return;
-  state.expenses = state.expenses.filter(x=>x.id!==id);
+  if(!confirm('Undo the '+fmt(e.amount)+' payment to '+(p?p.name:'this payee')+'?')) return;
+  unlinkOrDelete(e, p ? p.name : 'this payee');
   persist(); render();
   const mk = monthKey(viewMonth);
   if(state.expenses.some(x=>x.payeeId && keyOfDateStr(x.date)===mk)) viewPayeeGroup();
   else closeModal('itemsModal');
   toast('Payment undone');
+}
+function unlinkOrDelete(exp, name){
+  // shared two-step: unmark the payee, then choose the expense's fate
+  const del = confirm('Also DELETE the '+fmt(exp.amount)+' expense entry?\n\nOK — delete it completely (it was recorded in error)\nCancel — KEEP the expense, just unlink it from '+name);
+  if(del){
+    state.expenses = state.expenses.filter(e=>e.id!==exp.id);
+    return 'deleted';
+  }
+  exp.payeeId = undefined;
+  // restore the original narration if the link rewrote it
+  if(exp.note && exp.note.indexOf(' · ') > -1 && /^Payee for /.test(exp.note)){
+    exp.note = exp.note.split(' · ').slice(1).join(' · ');
+  }
+  return 'unlinked';
 }
 function undoPayment(id){
   const p = state.payees.find(x=>x.id===id); if(!p) return;
@@ -1645,10 +1659,10 @@ function undoPayment(id){
   const exp = state.expenses.find(e=>e.payeeId===id && keyOfDateStr(e.date)===mk);
   if(!exp) return;
   const when = new Date(exp.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'});
-  if(!confirm('Undo the '+fmt(exp.amount)+' payment to '+p.name+' recorded on '+when+'? The expense is deleted and your wallet balance restored.')) return;
-  state.expenses = state.expenses.filter(e=>e.id!==exp.id);
+  if(!confirm('Unmark '+p.name+' as paid for this month? (payment of '+fmt(exp.amount)+' on '+when+')')) return;
+  const what = unlinkOrDelete(exp, p.name);
   persist(); render();
-  toast('Payment to '+p.name+' undone');
+  toast(what==='deleted' ? 'Payment to '+p.name+' deleted' : p.name+' unmarked — the expense entry stays');
 }
 
 // ---------- wallet ----------
@@ -2159,6 +2173,35 @@ function confirmImport(){
   closeModal('importModal');
   importCtx = null;
 }
+// best-effort category from the narration; falls back to the import's default
+function guessCategory(note){
+  const n = String(note||'').toLowerCase();
+  if(!n) return null;
+  for(const c of state.categories){
+    if(c.name.length >= 4 && n.includes(c.name.toLowerCase())) return c.id;
+  }
+  const rules = [
+    ['airtime',      /airtime|\bdata\b|\bmtn\b|\bglo\b|9mobile|airtel|recharge|\bsim ?cards?\b/],
+    ['fuel',         /fuel|petrol|diesel/],
+    ['electricity',  /electricit|nepa|phcn|prepaid meter|ikeja electric|eko disco/],
+    ['vet',          /\bvet\b|veterinar/],
+    ['dogfood',      /dog ?food|kibble/],
+    ['doggroom',     /groom/],
+    ['meds',         /pharmac|\bdrugs?\b|medicin|vitamin|supplement|omega ?3|herbal|herbs/],
+    ['health',       /hospital|clinic|doctor|therap|medical|dental|optic/],
+    ['personalcare', /skincare|skin care|toner|niacinamide|face cream|roll ?on|body spray|\bhair\b|braid|attachment|salon|barber|perfume|cosmetic|oriflame|makeup|soap/],
+    ['fun',          /cinema|netflix|spotify|amazon prime|\bdstv\b|\bgotv\b|movie|entertain|playstation|game/],
+    ['food',         /\bfood\b|grocer|market|restaurant|pizza|grill|eatery|kitchen|cake|bread|\brice\b|spag|beans|provision|lunch|dinner|breakfast|suya|shawarma|chicken|dominos|snack|zobo|foodstuff|plantain|ponmo|\bfish\b|custard|spices/],
+    ['transport',    /transport|\buber\b|\bbolt\b|taxi|\bfare\b|dispatch|car ?park|alabaru|rider|logistic|tfare/],
+    ['housing',      /\brent\b|plumb|carpent|repair|workmanship|furniture|mainten|painter/],
+    ['shopping',     /shirt|cloth|dress|shoe|\bbag\b|boutique|wears|\bcaps?\b|fashion|stationery/],
+    ['payments',     /salary|allowance|tithe|wages/]
+  ];
+  for(const r of rules){
+    if(r[1].test(n) && state.categories.some(c=>c.id===r[0])) return r[0];
+  }
+  return null;
+}
 function applyStatementImport(mapped, method, cat){
   if(!state.categories.some(c=>c.id===cat)) cat = 'other';
   let added=0, skippedIn=0, skippedDup=0, skippedFailed=0, badDate=0, lastDate=null;
@@ -2195,7 +2238,7 @@ function applyStatementImport(mapped, method, cat){
     const a = String(p.acct||'').replace(/\D/g,'');
     if(a.length>=8) payeeByAcct[a] = p;
   });
-  let matchedPayees = 0, linkedExisting = 0;
+  let matchedPayees = 0, linkedExisting = 0, adhocPayees = 0, autoCat = 0;
 
   mapped.forEach(m=>{
     // failed / reversed / pending transactions never left the account
@@ -2218,7 +2261,12 @@ function applyStatementImport(mapped, method, cat){
     // Successful debits are otherwise ALWAYS recorded — same account or not,
     // same narration or not.
     const bd = String(m.bacct||'').replace(/\D/g,'');
-    const pMatch = bd ? payeeByAcct[bd] : null;
+    const pAcct = bd ? payeeByAcct[bd] : null;
+    // only an EXACT match on the payee's registered monthly amount counts as
+    // their monthly payment — same person, different amount = ad-hoc payment,
+    // imported as a normal expense for the owner to judge
+    const pMatch = (pAcct && Math.abs(amt - pAcct.amount) < 0.005) ? pAcct : null;
+    if(pAcct && !pMatch) adhocPayees++;
     if(consume(date, amt)){
       skippedDup++;
       // self-heal: the row is already in the tracker (entered by hand or an
@@ -2229,10 +2277,12 @@ function applyStatementImport(mapped, method, cat){
       }
       return;
     }
+    const gCat = pMatch ? null : guessCategory(m.note);
+    if(gCat && gCat !== cat) autoCat++;
     const exp = {
       id: 'e'+Date.now()+Math.random().toString(36).slice(2,6),
       amount: amt, date, method,
-      cat: pMatch ? (state.categories.some(c=>c.id===pMatch.cat) ? pMatch.cat : 'payments') : cat,
+      cat: pMatch ? (state.categories.some(c=>c.id===pMatch.cat) ? pMatch.cat : 'payments') : (gCat || cat),
       note: pMatch ? (payNoteFor(date, pMatch) + (m.note ? ' · '+m.note : '')) : (m.note||'')
     };
     if(pMatch){ exp.payeeId = pMatch.id; matchedPayees++; }
@@ -2244,8 +2294,10 @@ function applyStatementImport(mapped, method, cat){
   if(lastDate) viewMonth = new Date(lastDate.slice(0,7)+'-01T00:00:00');
   render();
   const bits = [added+' expense'+(added===1?'':'s')+' imported'];
-  if(matchedPayees) bits.push(matchedPayees+' matched to your payees — marked as paid');
+  if(matchedPayees) bits.push(matchedPayees+' matched to your payees (exact monthly amount) — marked as paid');
   if(linkedExisting) bits.push(linkedExisting+' existing entr'+(linkedExisting===1?'y':'ies')+' linked to payees — marked as paid');
+  if(adhocPayees) bits.push(adhocPayees+' payment'+(adhocPayees===1?'':'s')+' to people on your payee list kept as normal expenses (amount differs from their monthly) — use Pay on the payee to link one if needed');
+  if(autoCat) bits.push(autoCat+' auto-categorised from the narration — spot-check with the category filter');
   if(skippedDup) bits.push(skippedDup+' already in your tracker — skipped');
   if(ownTransfers) bits.push(ownTransfers+' transfer'+(ownTransfers===1?'':'s')+' between your own accounts — skipped');
   if(skippedFailed) bits.push(skippedFailed+' failed/reversed — skipped');
