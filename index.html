@@ -1940,66 +1940,128 @@ const STATEMENT_PDF_SCHEMA = {
   required: ['account_number','rows'],
   additionalProperties: false
 };
+function bufToB64(buf){
+  let s = '';
+  const b = new Uint8Array(buf);
+  const CH = 0x8000;
+  for(let i=0; i<b.length; i+=CH){ s += String.fromCharCode.apply(null, b.subarray(i, i+CH)); }
+  return btoa(s);
+}
+async function loadPdfJs(){
+  if(window.pdfjsLib) return;
+  await new Promise((res, rej)=>{
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+    s.onload = res; s.onerror = ()=>rej(new Error('offline'));
+    document.head.appendChild(s);
+  });
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+}
 function handleStatementPdf(f){
   if(f.size > 6*1024*1024){ toast('PDF too large — max ~6 MB'); return; }
-  toast('⏳ Reading the PDF with AI — this takes a moment…');
   const r = new FileReader();
   r.onerror = ()=> toast('⚠️ Could not read that file');
   r.onload = async ()=>{
-    const b64 = String(r.result).split(',')[1];
-    try{
-      let res;
-      if(state.settings.apiKey){
-        res = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-api-key': state.settings.apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true'
-          },
-          body: JSON.stringify({
-            model: 'claude-haiku-4-5',
-            max_tokens: 16000,
-            output_config: { format: { type: 'json_schema', schema: STATEMENT_PDF_SCHEMA } },
-            messages: [{ role: 'user', content: [
-              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
-              { type: 'text', text: 'Extract EVERY transaction row from this bank statement. Dates as YYYY-MM-DD. Amounts as plain numbers. Classify each row type: "payment" (real outgoing payments/POS/transfers/airtime), "charge" (commission/VAT/stamp duty/SMS/maintenance fees), "credit" (money in), "reversal" (reversed transactions). Include beneficiary account numbers when visible.' }
-            ]}]
-          })
-        });
-      }else{
-        res = await fetch(SCAN_PROXY_URL.replace('scan-receipt','scan-statement'), {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'Authorization': 'Bearer '+SCAN_PROXY_KEY,
-            'apikey': SCAN_PROXY_KEY
-          },
-          body: JSON.stringify({ pdf: b64 })
-        });
+    const buf = r.result;
+    const b64 = bufToB64(buf);
+    // probe for password protection locally (the password never leaves this device)
+    let probed = false;
+    try{ await loadPdfJs(); probed = true; }catch(e){ /* offline probe unavailable — try the direct route */ }
+    if(probed){
+      let doc = null;
+      try{
+        doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf).slice(0) }).promise;
+      }catch(err){
+        if(err && err.name === 'PasswordException'){
+          for(let attempt=0; attempt<3 && !doc; attempt++){
+            const pw = prompt('🔒 This PDF is password-locked.\nEnter its password'+(attempt? ' (that one was not accepted — try again)':'')+' — banks often use your date of birth or phone number:');
+            if(pw === null){ toast('Import cancelled'); return; }
+            try{
+              doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf).slice(0), password: pw }).promise;
+            }catch(e2){
+              if(!(e2 && e2.name === 'PasswordException')){ toast('⚠️ Could not open that PDF'); return; }
+            }
+          }
+          if(!doc){ toast('⚠️ Could not unlock the PDF — password not accepted after 3 tries'); return; }
+          // unlocked: render pages to images locally and send those instead
+          const pages = Math.min(doc.numPages, 15);
+          toast('🔓 Unlocked — reading '+pages+' page'+(pages===1?'':'s')+' with AI…');
+          const imgs = [];
+          for(let p=1; p<=pages; p++){
+            const page = await doc.getPage(p);
+            const base = page.getViewport({ scale: 1 });
+            const vp = page.getViewport({ scale: Math.min(2, 1500/base.width) });
+            const cv = document.createElement('canvas');
+            cv.width = vp.width; cv.height = vp.height;
+            await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+            imgs.push(cv.toDataURL('image/jpeg', 0.8).split(',')[1]);
+          }
+          if(doc.numPages > 15) toast('Note: only the first 15 pages were read');
+          await sendStatementScan({ images: imgs }, f.name);
+          return;
+        }
+        toast('⚠️ Could not open that PDF — is it a valid file?');
+        return;
       }
-      if(!res.ok){
-        const err = await res.json().catch(()=>null);
-        const msg = err && err.error
-          ? (typeof err.error === 'string' ? err.error : (err.error.message || ('HTTP '+res.status)))
-          : ('HTTP '+res.status);
-        throw new Error(msg);
-      }
-      const data = await res.json();
-      if(data.stop_reason === 'refusal') throw new Error('The AI declined to read this document');
-      const text = (data.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('');
-      const parsed = JSON.parse(text);
-      const rows = (parsed.rows||[]);
-      if(!rows.length) throw new Error('No transactions found in that PDF — is it a bank statement?');
-      const tab = [['date','narration','debit','credit','status','type','beneficiary_account']]
-        .concat(rows.map(x=>[x.date, x.narration, x.debit||'', x.credit||'', x.status||'', x.type||'', x.beneficiary_account||'']));
-      openImportModal('statement', tab, f.name);
-    }catch(err){
-      toast('⚠️ PDF read failed: '+(err && err.message ? err.message : 'unknown error'));
     }
+    toast('⏳ Reading the PDF with AI — this takes a moment…');
+    await sendStatementScan({ pdf: b64 }, f.name);
   };
-  r.readAsDataURL(f);
+  r.readAsArrayBuffer(f);
+}
+async function sendStatementScan(payload, fileName){
+  const mediaBlocks = payload.images
+    ? payload.images.map(d=>({ type:'image', source:{ type:'base64', media_type:'image/jpeg', data:d } }))
+    : [{ type:'document', source:{ type:'base64', media_type:'application/pdf', data: payload.pdf } }];
+  const PROMPT = 'Extract EVERY transaction row from this bank statement. Dates as YYYY-MM-DD. Amounts as plain numbers. Classify each row type: "payment" (real outgoing payments/POS/transfers/airtime), "charge" (commission/VAT/stamp duty/SMS/maintenance fees), "credit" (money in), "reversal" (reversed transactions). Include beneficiary account numbers when visible.';
+  try{
+    let res;
+    if(state.settings.apiKey){
+      res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': state.settings.apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5',
+          max_tokens: 16000,
+          output_config: { format: { type: 'json_schema', schema: STATEMENT_PDF_SCHEMA } },
+          messages: [{ role: 'user', content: mediaBlocks.concat([{ type: 'text', text: PROMPT }]) }]
+        })
+      });
+    }else{
+      res = await fetch(SCAN_PROXY_URL.replace('scan-receipt','scan-statement'), {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Authorization': 'Bearer '+SCAN_PROXY_KEY,
+          'apikey': SCAN_PROXY_KEY
+        },
+        body: JSON.stringify(payload)
+      });
+    }
+    if(!res.ok){
+      const err = await res.json().catch(()=>null);
+      const msg = err && err.error
+        ? (typeof err.error === 'string' ? err.error : (err.error.message || ('HTTP '+res.status)))
+        : ('HTTP '+res.status);
+      throw new Error(msg);
+    }
+    const data = await res.json();
+    if(data.stop_reason === 'refusal') throw new Error('The AI declined to read this document');
+    const text = (data.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('');
+    const parsed = JSON.parse(text);
+    const rows = (parsed.rows||[]);
+    if(!rows.length) throw new Error('No transactions found in that PDF — is it a bank statement?');
+    const tab = [['date','narration','debit','credit','status','type','beneficiary_account']]
+      .concat(rows.map(x=>[x.date, x.narration, x.debit||'', x.credit||'', x.status||'', x.type||'', x.beneficiary_account||'']));
+    openImportModal('statement', tab, fileName);
+  }catch(err){
+    toast('⚠️ PDF read failed: '+(err && err.message ? err.message : 'unknown error'));
+  }
 }
 function downloadSample(kind){
   const samples = {
