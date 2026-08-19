@@ -2739,6 +2739,18 @@ function render(){
     <div class="stat"><div class="lbl">Daily average</div><div class="val">${fmt(avgDay)}</div><div class="sub">over ${daysElapsed} day${daysElapsed===1?'':'s'}</div></div>
     <div class="stat"><div class="lbl">Top category</div><div class="val" style="font-size:17px">${topKey?esc(byGroup[topKey].name):'—'}</div><div class="sub">${topKey?fmt(byGroup[topKey].total):'no expenses yet'}</div></div>
     ${budgetHtml || `<div class="stat"><div class="lbl">Biggest expense</div><div class="val" style="font-size:17px">${biggest?fmt(biggest.amount):'—'}</div><div class="sub">${biggest?(biggest.note||catById(biggest.cat).name):'no expenses yet'}</div></div>`}
+    ${(()=>{
+      const allSpent = state.expenses.reduce((s,e)=>s+e.amount,0);
+      const savedGross = (state.savings.entries||[]).reduce((s,x)=>s+(x.type==='withdraw'?0:x.amount),0);
+      if(!allSpent && !savedGross && !funded) return '';
+      const row = (label,val,color)=>`<div style="display:flex;justify-content:space-between;gap:8px;font-size:12.5px;padding:2.5px 0"><span style="color:var(--muted)">${label}</span><b style="color:${color||'var(--ink)'}">${val}</b></div>`;
+      return `<div class="stat"><div class="lbl">All-time history</div><div style="margin-top:6px">
+        ${row('Funded', fmt(funded))}
+        ${row('Spent', fmt(allSpent))}
+        ${row('Excess (external)', fmt(extTotal), extTotal>0?'var(--danger)':'var(--muted)')}
+        ${row('Saved', fmt(savedGross), 'var(--ok)')}
+      </div></div>`;
+    })()}
   `;
 
   // table (filtered)
