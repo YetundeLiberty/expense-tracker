@@ -250,6 +250,7 @@
     <div class="filters">
       <input type="text" id="grocSearch" placeholder="&#128269; Search items, e.g. eggs" oninput="renderGrocery()">
       <select id="grocCat" onchange="renderGrocery()"></select>
+      <select id="grocMonth" onchange="renderGrocery()"></select>
     </div>
     <div style="overflow-x:auto">
       <table>
@@ -1652,8 +1653,7 @@ function unlinkOrDelete(exp, name){
   if(exp.note && exp.note.indexOf(' · ') > -1 && /^Payee for /.test(exp.note)){
     exp.note = exp.note.split(' · ').slice(1).join(' · ');
     if(exp.cat === 'payments'){
-      const g = guessCategory(exp.note);
-      if(g) exp.cat = g;
+      exp.cat = guessCategory(exp.note) || 'other';
     }
   }
   return 'unlinked';
@@ -2182,8 +2182,10 @@ function openImportModal(target, rows, fileName){
   };
   const titles = {payees:'Import Payees', items:'Import Items', statement:'Import Bank Statement'};
   $('importTitle').innerHTML = titles[target] + ' <span style="font-size:12px;color:var(--muted);font-weight:400">from ' + esc(fileName) + '</span>';
+  const guessed = {};
   $('importMap').innerHTML = fields.map(f=>{
     const g = guessFor(f);
+    guessed[f.key] = g;
     return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
       <label style="width:130px;margin:0">${f.label}${f.req?' *':''}</label>
       <select id="imap_${f.key}" style="flex:1">
@@ -2213,6 +2215,49 @@ function openImportModal(target, rows, fileName){
                  : 'Bank transfer';
     if(state.methods.includes(guessM)) $('imap_x_method').value = guessM;
     if(state.categories.some(c=>c.id==='other')) $('imap_x_cat').value = 'other';
+
+    // dry-run with the suggested column matches so the exclusions are
+    // visible BEFORE importing — nothing already in the tracker re-imports
+    const gm = importCtx.dataRows.map(r=>{
+      const o = {};
+      fields.forEach(f=>{
+        const i = guessed[f.key];
+        o[f.key] = (i!=null && i>=0) ? String(r[i]==null?'':r[i]).trim() : '';
+      });
+      return o;
+    });
+    const seen = {};
+    state.expenses.forEach(e=>{ const k=e.date+'|'+Number(e.amount).toFixed(2); seen[k]=(seen[k]||0)+1; });
+    const own = String((state.profile&&state.profile.ownAccts)||'').split(/[^0-9]+/).filter(a=>a.length>=8);
+    if(state.profile && state.profile.acct){
+      const a = String(state.profile.acct).replace(/\D/g,'');
+      if(a.length>=8 && own.indexOf(a)<0) own.push(a);
+    }
+    let nNew=0, nDup=0, nFail=0, nIn=0, nChg=0, nOwn=0, nBad=0;
+    gm.forEach(m=>{
+      if(m.status && /fail|revers|pending|declin|cancel/i.test(m.status)){ nFail++; return; }
+      if(m.ttype && /fund|credit|deposit|reversal|refund|commission/i.test(m.ttype)){ nIn++; return; }
+      const amt = parseNum(m.debit);
+      if(!amt || amt<=0){ nIn++; return; }
+      const date = parseDateFlex(m.date);
+      if(!date){ nBad++; return; }
+      if(m.ttype && /vat|sms|levy|charge|duty|stamp|fee/i.test(m.ttype)){ nChg++; return; }
+      if(own.length){
+        const bd = String(m.bacct||'').replace(/\D/g,'');
+        if((bd && own.indexOf(bd)>=0) || own.some(a=>String(m.note||'').indexOf(a)>=0)){ nOwn++; return; }
+      }
+      const k = date+'|'+amt.toFixed(2);
+      if(seen[k]>0){ seen[k]--; nDup++; return; }
+      nNew++;
+    });
+    const parts = ['<b>'+nNew+' new</b>'];
+    if(nDup) parts.push(nDup+' already in your tracker');
+    if(nFail) parts.push(nFail+' failed/reversed');
+    if(nIn) parts.push(nIn+' money-in');
+    if(nChg) parts.push(nChg+' small charges');
+    if(nOwn) parts.push(nOwn+' own-account');
+    if(nBad) parts.push(nBad+' unreadable dates');
+    $('importMap').innerHTML += `<div style="background:var(--accent-soft);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:13px">&#128269; Preview of ${gm.length} rows: ${parts.join(' · ')}. Only the new rows will be imported.</div>`;
   }
   $('importPreview').innerHTML = `<div style="color:var(--muted);margin-bottom:6px">Preview — first ${Math.min(3,importCtx.dataRows.length)} of ${importCtx.dataRows.length} rows:</div>
     <table style="font-size:11.5px"><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
@@ -2454,9 +2499,18 @@ function renderGrocery(){
   const catF = $('grocCat').value;
   const q = $('grocSearch').value.trim().toLowerCase();
 
+  // month filter: All time, or one specific month
+  const mSel = $('grocMonth');
+  const curMSel = mSel.value;
+  const monthsWithData = [...new Set(state.expenses.map(e=>keyOfDateStr(e.date)))].sort().reverse();
+  mSel.innerHTML = '<option value="">All time</option>' + monthsWithData.map(k=>`<option value="${k}">${monthLabel(k)}</option>`).join('');
+  if(monthsWithData.includes(curMSel)) mSel.value = curMSel;
+  const mFil = mSel.value;
+
   const groups = {};
   state.expenses.forEach(e=>{
     if(catF && e.cat!==catF) return;
+    if(mFil && keyOfDateStr(e.date)!==mFil) return;
     const its = e.items||[];
     if(!its.length){
       // no line items: the expense itself feeds the tracker, named by its note
@@ -2493,10 +2547,9 @@ function renderGrocery(){
     return rb[rb.length-1].date.localeCompare(ra[ra.length-1].date) || a.localeCompare(b);
   });
 
-  const mk = monthKey(viewMonth);
-  const monthSpent = state.expenses.filter(e=>keyOfDateStr(e.date)===mk && (!catF || e.cat===catF)).reduce((s,e)=>s+e.amount,0);
+  const spentScope = state.expenses.filter(e=>(!catF || e.cat===catF) && (!mFil || keyOfDateStr(e.date)===mFil)).reduce((s,e)=>s+e.amount,0);
   $('grocSummary').textContent = keys.length
-    ? keys.length+' item'+(keys.length===1?'':'s')+' tracked · '+fmt(monthSpent)+' spent this month'
+    ? keys.length+' item'+(keys.length===1?'':'s')+' tracked · '+fmt(spentScope)+' spent '+(mFil ? 'in '+monthLabel(mFil) : 'all time')
     : '';
 
   if(!keys.length){
