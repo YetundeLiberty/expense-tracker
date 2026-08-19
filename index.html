@@ -657,7 +657,7 @@
   </div>
 </div>
 
-<input type="file" id="importFile" accept=".csv,.txt,.xlsx,.xls" style="display:none">
+<input type="file" id="importFile" accept=".csv,.txt,.xlsx,.xls,.pdf" style="display:none">
 
 <div class="toast" id="toast"></div>
 
@@ -1897,6 +1897,91 @@ function parseCSV(text){
 function importPayeesFile(){ startFilePick('payees'); }
 function importItemsFile(){ startFilePick('items'); }
 function importStatementFile(){ startFilePick('statement'); }
+// PDF statements: AI reads the file (via the shared proxy, or a personal key)
+// and the rows flow into the normal mapping modal + duplicate sieve
+const STATEMENT_PDF_SCHEMA = {
+  type: 'object',
+  properties: {
+    account_number: { type: 'string' },
+    rows: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          date: { type: 'string' }, narration: { type: 'string' },
+          debit: { type: 'number' }, credit: { type: 'number' },
+          status: { type: 'string' }, type: { type: 'string' },
+          beneficiary_account: { type: 'string' }
+        },
+        required: ['date','narration','debit','credit','status','type','beneficiary_account'],
+        additionalProperties: false
+      }
+    }
+  },
+  required: ['account_number','rows'],
+  additionalProperties: false
+};
+function handleStatementPdf(f){
+  if(f.size > 6*1024*1024){ toast('PDF too large — max ~6 MB'); return; }
+  toast('⏳ Reading the PDF with AI — this takes a moment…');
+  const r = new FileReader();
+  r.onerror = ()=> toast('⚠️ Could not read that file');
+  r.onload = async ()=>{
+    const b64 = String(r.result).split(',')[1];
+    try{
+      let res;
+      if(state.settings.apiKey){
+        res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-api-key': state.settings.apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+          },
+          body: JSON.stringify({
+            model: 'claude-haiku-4-5',
+            max_tokens: 16000,
+            output_config: { format: { type: 'json_schema', schema: STATEMENT_PDF_SCHEMA } },
+            messages: [{ role: 'user', content: [
+              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
+              { type: 'text', text: 'Extract EVERY transaction row from this bank statement. Dates as YYYY-MM-DD. Amounts as plain numbers. Classify each row type: "payment" (real outgoing payments/POS/transfers/airtime), "charge" (commission/VAT/stamp duty/SMS/maintenance fees), "credit" (money in), "reversal" (reversed transactions). Include beneficiary account numbers when visible.' }
+            ]}]
+          })
+        });
+      }else{
+        res = await fetch(SCAN_PROXY_URL.replace('scan-receipt','scan-statement'), {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'Authorization': 'Bearer '+SCAN_PROXY_KEY,
+            'apikey': SCAN_PROXY_KEY
+          },
+          body: JSON.stringify({ pdf: b64 })
+        });
+      }
+      if(!res.ok){
+        const err = await res.json().catch(()=>null);
+        const msg = err && err.error
+          ? (typeof err.error === 'string' ? err.error : (err.error.message || ('HTTP '+res.status)))
+          : ('HTTP '+res.status);
+        throw new Error(msg);
+      }
+      const data = await res.json();
+      if(data.stop_reason === 'refusal') throw new Error('The AI declined to read this document');
+      const text = (data.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('');
+      const parsed = JSON.parse(text);
+      const rows = (parsed.rows||[]);
+      if(!rows.length) throw new Error('No transactions found in that PDF — is it a bank statement?');
+      const tab = [['date','narration','debit','credit','status','type','beneficiary_account']]
+        .concat(rows.map(x=>[x.date, x.narration, x.debit||'', x.credit||'', x.status||'', x.type||'', x.beneficiary_account||'']));
+      openImportModal('statement', tab, f.name);
+    }catch(err){
+      toast('⚠️ PDF read failed: '+(err && err.message ? err.message : 'unknown error'));
+    }
+  };
+  r.readAsDataURL(f);
+}
 function downloadSample(kind){
   const samples = {
     payees: 'Full Name,Bank,Bank Code,Account Number,Monthly Amount,Funds Expected\r\n'
@@ -1928,6 +2013,11 @@ $('importFile').addEventListener('change', e=>{
   const f = e.target.files[0]; if(!f) return;
   const target = e.target.dataset.target;
   const ext = f.name.split('.').pop().toLowerCase();
+  if(ext==='pdf'){
+    if(target!=='statement'){ toast('PDFs are only supported for bank statements — use Import bank statement'); return; }
+    handleStatementPdf(f);
+    return;
+  }
   if(ext==='csv' || ext==='txt'){
     const r = new FileReader();
     r.onload = ()=>{ openImportModal(target, parseCSV(r.result), f.name); };
@@ -1994,6 +2084,11 @@ function parseDateFlex(s){
 function openImportModal(target, rows, fileName){
   if(!rows || rows.length < 2){ toast('That file has no data rows'); return; }
   const headers = rows[0].map(h=>String(h).trim());
+  // steer statement files away from the item-list importer
+  if(target==='items' && headers.some(h=>/debit|withdraw|narrat/i.test(h)) && headers.some(h=>/date/i.test(h))){
+    toast('⚠️ This looks like a bank statement — use "Import bank statement" in the Expenses section instead');
+    return;
+  }
   importCtx = { target, headers, dataRows: rows.slice(1) };
   const fields = IMPORT_FIELDS[target];
   const used = new Set();
