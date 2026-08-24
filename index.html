@@ -2165,10 +2165,11 @@ function parseDateFlex(s){
 function openImportModal(target, rows, fileName){
   if(!rows || rows.length < 2){ toast('That file has no data rows'); return; }
   const headers = rows[0].map(h=>String(h).trim());
-  // steer statement files away from the item-list importer
-  if(target==='items' && headers.some(h=>/debit|withdraw|narrat/i.test(h)) && headers.some(h=>/date/i.test(h))){
-    toast('⚠️ This looks like a bank statement — use "Import bank statement" in the Expenses section instead');
-    return;
+  // steer statement files away from the item-list importer: a grocery list
+  // never has a date column next to debit/balance-style money columns
+  if(target==='items' && headers.some(h=>/debit|withdraw|narrat|money ?(out|in)|lodgement|balance|\bcredit\b/i.test(h)) && headers.some(h=>/date/i.test(h))){
+    toast('🏦 That file looks like a bank statement — opening the bank statement importer for you');
+    target = 'statement';
   }
   importCtx = { target, headers, dataRows: rows.slice(1) };
   const fields = IMPORT_FIELDS[target];
