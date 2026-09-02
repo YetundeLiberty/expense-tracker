@@ -777,6 +777,7 @@ function defaults(){
       {id:'dogfood',name:'Dog Food',         color:'#a16207'},
       {id:'doggroom',name:'Dog Grooming',    color:'#d946ef'},
       {id:'vet',    name:'Vet',              color:'#0ea5e9'},
+      {id:'bankcharges',name:'Bank Charges', color:'#94a3b8'},
       {id:'payments',name:'Payee',            color:'#6366f1'},
       {id:'other',  name:'Other',            color:'#6b7487'}
     ],
@@ -808,6 +809,13 @@ function load(){
         if(payCat && payCat.name==='Monthly Payments') payCat.name = 'Payee';
         if(payCat && payCat.color==='#64748b') payCat.color = '#6366f1'; // was near-identical to Other's grey
         if(!d.methods) d.methods = defaults().methods;
+        if(!d.settings.provCardV1){
+          if(!d.methods.some(x=>/^card/i.test(x) && /provi/i.test(x))){
+            const ti = d.methods.findIndex(x=>/^transfer/i.test(x));
+            d.methods.splice(ti>-1 ? ti : d.methods.length, 0, 'Card – Providus Card');
+          }
+          d.settings.provCardV1 = true;
+        }
         if(!d.categories.some(c=>c.id==='meds')){
           const hi = d.categories.findIndex(c=>c.id==='health');
           d.categories.splice(hi>-1 ? hi+1 : d.categories.length, 0, {id:'meds',name:'Drugs/Medication',color:'#14b8a6'});
@@ -818,7 +826,8 @@ function load(){
           {id:'dogfood',name:'Dog Food',     color:'#a16207'},
           {id:'doggroom',name:'Dog Grooming',color:'#d946ef'},
           {id:'vet',    name:'Vet',          color:'#0ea5e9'},
-          {id:'personalcare',name:'Personal Care',color:'#fb7185'}
+          {id:'personalcare',name:'Personal Care',color:'#fb7185'},
+          {id:'bankcharges',name:'Bank Charges',color:'#94a3b8'}
         ].forEach(nc=>{
           if(d.categories.some(c=>c.id===nc.id)) return;
           const pi = d.categories.findIndex(c=>c.id==='payments');
@@ -2162,6 +2171,25 @@ function parseDateFlex(s){
   if(m && MONTHS[m[1].slice(0,3).toLowerCase()]) return mk(m[3], MONTHS[m[1].slice(0,3).toLowerCase()], m[2]);
   return null;
 }
+// small bank charges (stamp duty, SMS alerts, EMTL, NIP fees, VAT…) named in
+// the narration rather than a transaction-type column
+const CHARGE_NARR = /stamp ?duty|sms (alert|charge|notif)|\bemtl\b|electronic money transfer levy|nip (charge|fee|comm)|transfer (fee|charge)|\bvat\b|acc(oun)?t maint|card maint|maintenance fee|\bcot\b|alert (fee|charge)|\blevy\b|commission/i;
+const isChargeRow = (m, amt)=>
+  (m.ttype && /vat|sms|levy|charge|duty|stamp|fee/i.test(m.ttype)) ||
+  (amt <= 500 && CHARGE_NARR.test(m.note||''));
+// card / POS / ATM spending recognisable from the narration
+const CARD_NARR = /\bpos\b|\batm\b|card (purchase|payment|txn|trans)|pos[\/\- ]|web[\/\- ]?(purchase|pay|txn)|paystack|flutterwave|interswitch/i;
+// the "Card – …" method that belongs to the same bank as a transfer method
+function cardMethodFor(method){
+  const t = String(method||'').toLowerCase();
+  const key = /provi/.test(t) ? 'provi'
+            : /\bgt|guaranty/.test(t) ? 'gt'
+            : /first/.test(t) ? 'first'
+            : /liberty/.test(t) ? 'liberty'
+            : /paybox/.test(t) ? 'paybox' : null;
+  if(!key) return null;
+  return state.methods.find(x=>/^card/i.test(x) && x.toLowerCase().includes(key)) || null;
+}
 function openImportModal(target, rows, fileName){
   if(!rows || rows.length < 2){ toast('That file has no data rows'); return; }
   const headers = rows[0].map(h=>String(h).trim());
@@ -2205,15 +2233,17 @@ function openImportModal(target, rows, fileName){
         <label style="width:130px;margin:0">Default category</label>
         <select id="imap_x_cat" style="flex:1">${state.categories.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
       </div>
-      <p style="font-size:11.5px;color:var(--muted);margin-top:8px">Credits (money in) and rows already imported are skipped automatically. You can recategorise individual expenses afterwards with &#9998;.</p>
+      <p style="font-size:11.5px;color:var(--muted);margin-top:8px">Credits (money in) and rows already imported are skipped automatically. Card/POS rows get the bank's card method, small bank charges are combined into one Bank Charges expense, and the narration picks each row's category. Recategorise afterwards with &#9998; if needed.</p>
     </div>`;
-    const fn = fileName.toLowerCase();
-    const guessM = /gtb|gt bank|guaranty/.test(fn) ? 'Transfer – GTBank'
-                 : fn.includes('providus') ? 'Transfer – Providus Bank'
-                 : fn.includes('first') ? 'Transfer – First Bank'
-                 : fn.includes('paybox') ? 'Transfer – PayBox360'
-                 : fn.includes('liberty') ? 'Transfer – Liberty Pay'
-                 : 'Bank transfer';
+    // pick the bank from the file name, falling back to the header row
+    // (beneficiary banks in narrations are ignored — they mislead)
+    const bankFrom = t => /gtb|gt bank|gtbank|guaranty/.test(t) ? 'Transfer – GTBank'
+                 : t.includes('providus') ? 'Transfer – Providus Bank'
+                 : /first ?bank|firstbank/.test(t) ? 'Transfer – First Bank'
+                 : t.includes('paybox') ? 'Transfer – PayBox360'
+                 : t.includes('liberty') ? 'Transfer – Liberty Pay'
+                 : null;
+    const guessM = bankFrom(fileName.toLowerCase()) || bankFrom(headers.join(' ').toLowerCase()) || 'Bank transfer';
     if(state.methods.includes(guessM)) $('imap_x_method').value = guessM;
     if(state.categories.some(c=>c.id==='other')) $('imap_x_cat').value = 'other';
 
@@ -2242,7 +2272,7 @@ function openImportModal(target, rows, fileName){
       if(!amt || amt<=0){ nIn++; return; }
       const date = parseDateFlex(m.date);
       if(!date){ nBad++; return; }
-      if(m.ttype && /vat|sms|levy|charge|duty|stamp|fee/i.test(m.ttype)){ nChg++; return; }
+      if(isChargeRow(m, amt)){ nChg++; return; }
       if(own.length){
         const bd = String(m.bacct||'').replace(/\D/g,'');
         if((bd && own.indexOf(bd)>=0) || own.some(a=>String(m.note||'').indexOf(a)>=0)){ nOwn++; return; }
@@ -2294,6 +2324,7 @@ function guessCategory(note){
     if(c.name.length >= 4 && n.includes(c.name.toLowerCase())) return c.id;
   }
   const rules = [
+    ['bankcharges',  CHARGE_NARR],
     ['airtime',      /airtime|\bdata\b|\bmtn\b|\bglo\b|9mobile|airtel|recharge|\bsim ?cards?\b/],
     ['fuel',         /fuel|petrol|diesel/],
     ['electricity',  /electricit|nepa|phcn|prepaid meter|ikeja electric|eko disco/],
@@ -2318,7 +2349,8 @@ function guessCategory(note){
 function applyStatementImport(mapped, method, cat){
   if(!state.categories.some(c=>c.id===cat)) cat = 'other';
   let added=0, skippedIn=0, skippedDup=0, skippedFailed=0, badDate=0, lastDate=null;
-  let chargeCount=0, chargeSum=0;
+  let chargeCount=0, chargeSum=0, chargeDate=null, cardRows=0;
+  const cardMethod = cardMethodFor(method);
 
   // duplicate sieve: an existing expense with the same date and amount
   // (however it was entered — by hand, via a payee payment, or a previous
@@ -2362,8 +2394,8 @@ function applyStatementImport(mapped, method, cat){
     if(!amt || amt<=0){ skippedIn++; return; }
     const date = parseDateFlex(m.date);
     if(!date){ badDate++; return; }
-    // tiny bank charges (stamp duty, SMS, VAT) are summed, not imported row by row
-    if(m.ttype && /vat|sms|levy|charge|duty|stamp|fee/i.test(m.ttype)){ chargeCount++; chargeSum+=amt; return; }
+    // tiny bank charges (stamp duty, SMS, VAT) are summed into one expense
+    if(isChargeRow(m, amt)){ chargeCount++; chargeSum+=amt; if(!chargeDate || date>chargeDate) chargeDate = date; return; }
     // transfer to one of the owner's own accounts → not an expense
     if(ownAccts.length){
       const bd = String(m.bacct||'').replace(/\D/g,'');
@@ -2392,9 +2424,12 @@ function applyStatementImport(mapped, method, cat){
     }
     const gCat = pMatch ? null : guessCategory(m.note);
     if(gCat && gCat !== cat) autoCat++;
+    // card / POS / ATM rows get the bank's card method instead of transfer
+    let rowMethod = method;
+    if(cardMethod && CARD_NARR.test(m.note||'')){ rowMethod = cardMethod; cardRows++; }
     const exp = {
       id: 'e'+Date.now()+Math.random().toString(36).slice(2,6),
-      amount: amt, date, method,
+      amount: amt, date, method: rowMethod,
       cat: pMatch ? (state.categories.some(c=>c.id===pMatch.cat) ? pMatch.cat : 'payments') : (gCat || cat),
       note: pMatch ? (payNoteFor(date, pMatch) + (m.note ? ' · '+m.note : '')) : (m.note||'')
     };
@@ -2403,6 +2438,23 @@ function applyStatementImport(mapped, method, cat){
     added++;
     if(!lastDate || date>lastDate) lastDate = date;
   });
+  // the summed bank charges become one expense in the Bank Charges category
+  // (skipped if this statement's charges were already booked by a past import)
+  let chargeBooked = false;
+  if(chargeSum > 0 && chargeDate && state.categories.some(c=>c.id==='bankcharges')){
+    const total = +chargeSum.toFixed(2);
+    const already = state.expenses.some(e=>e.cat==='bankcharges' && e.date===chargeDate && Math.abs(e.amount-total)<0.005);
+    if(!already){
+      state.expenses.push({
+        id: 'e'+Date.now()+Math.random().toString(36).slice(2,6),
+        amount: total, date: chargeDate, method,
+        cat: 'bankcharges',
+        note: 'Bank charges — '+chargeCount+' small charge'+(chargeCount===1?'':'s')+' from this statement'
+      });
+      chargeBooked = true;
+      if(!lastDate || chargeDate>lastDate) lastDate = chargeDate;
+    }
+  }
   persist();
   if(lastDate) viewMonth = new Date(lastDate.slice(0,7)+'-01T00:00:00');
   render();
@@ -2415,7 +2467,8 @@ function applyStatementImport(mapped, method, cat){
   if(ownTransfers) bits.push(ownTransfers+' transfer'+(ownTransfers===1?'':'s')+' between your own accounts — skipped');
   if(skippedFailed) bits.push(skippedFailed+' failed/reversed — skipped');
   if(skippedIn) bits.push(skippedIn+' money-in/blank row'+(skippedIn===1?'':'s')+' skipped');
-  if(chargeCount) bits.push(chargeCount+' small bank charges skipped ('+fmt(chargeSum)+' total — add one "Bank charges" expense if you want them tracked)');
+  if(chargeCount) bits.push(chargeCount+' small bank charges ('+fmt(chargeSum)+' total) '+(chargeBooked ? 'combined into one Bank Charges expense' : 'already booked as Bank Charges — skipped'));
+  if(cardRows) bits.push(cardRows+' card/POS row'+(cardRows===1?'':'s')+' set to '+cardMethodFor(method));
   if(badDate) bits.push(badDate+' unreadable date'+(badDate===1?'':'s'));
   toast(bits.join(' · '));
 }
