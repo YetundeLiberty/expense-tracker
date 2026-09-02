@@ -2367,7 +2367,7 @@ function guessCategory(note){
     ['fun',          /cinema|netflix|spotify|amazon prime|\bdstv\b|\bgotv\b|movie|entertain|playstation|game/],
     ['food',         /\bfood\b|grocer|market|restaurant|pizza|grill|eatery|kitchen|cake|bread|\brice\b|spag|beans|provision|lunch|dinner|breakfast|suya|shawarma|chicken|dominos|snack|zobo|foodstuff|plantain|ponmo|\bfish\b|custard|spices/],
     ['transport',    /transport|\buber\b|\bbolt\b|taxi|\bfare\b|dispatch|car ?park|alabaru|rider|logistic|tfare/],
-    ['housing',      /\brent\b|plumb|carpent|repair|workmanship|furniture|mainten|painter/],
+    ['housing',      /\brent\b|plumb|carpent|repair|workmanship|furnitur|funitur|mainten|painter|\broof\b|fittings?|electrician|tiles?\b|cement|renovat|curtain/],
     ['shopping',     /shirt|cloth|dress|shoe|\bbag\b|boutique|wears|\bcaps?\b|fashion|stationery/],
     ['payments',     /salary|allowance|tithe|wages/]
   ];
@@ -2379,7 +2379,7 @@ function guessCategory(note){
 function applyStatementImport(mapped, method, cat){
   if(!state.categories.some(c=>c.id===cat)) cat = 'other';
   let added=0, skippedIn=0, skippedDup=0, skippedFailed=0, badDate=0, lastDate=null;
-  let chargeCount=0, chargeSum=0, cardRows=0, methodFixed=0;
+  let chargeCount=0, chargeSum=0, cardRows=0, methodFixed=0, catFixed=0;
   const chargesByMonth = {}; // 'YYYY-MM' -> {count, sum, last}
   const cardMethod = cardMethodFor(method);
   // duplicates whose existing entry says "Cash" (from an import that ran
@@ -2466,6 +2466,15 @@ function applyStatementImport(mapped, method, cat){
     if(consume(date, amt)){
       skippedDup++;
       healMethod(date, amt, rowMethod);
+      // repair the wrong-default-category bug the same way: an existing
+      // duplicate still sitting in Food/Other whose narration clearly names
+      // another category gets moved there — manual recategorisations (any
+      // other category) are never touched
+      const gHeal = guessCategory(m.note);
+      if(gHeal){
+        const exC = state.expenses.find(e=>(e.cat==='other' || (e.cat==='food' && gHeal!=='food')) && e.date===date && Math.abs(e.amount-amt)<0.005 && !e.payeeId);
+        if(exC && exC.cat!==gHeal){ exC.cat = gHeal; catFixed++; }
+      }
       // self-heal: the row is already in the tracker (entered by hand or an
       // earlier import) but not linked to its payee — link it now
       if(pMatch){
@@ -2522,6 +2531,7 @@ function applyStatementImport(mapped, method, cat){
   if(chargeCount) bits.push(chargeCount+' small bank charges ('+fmt(chargeSum)+' total) '+(chargeBooked ? 'combined into '+chargeBooked+' Bank Charges expense'+(chargeBooked===1?'':'s (one per month)') : 'already booked as Bank Charges — skipped'));
   if(cardRows) bits.push(cardRows+' card/POS row'+(cardRows===1?'':'s')+' set to '+cardMethodFor(method));
   if(methodFixed) bits.push(methodFixed+' existing entr'+(methodFixed===1?'y':'ies')+' that said "Cash" corrected to the right bank');
+  if(catFixed) bits.push(catFixed+' existing entr'+(catFixed===1?'y':'ies')+' moved out of Food/Other to the category the narration names');
   if(badDate) bits.push(badDate+' unreadable date'+(badDate===1?'':'s'));
   toast(bits.join(' · '));
 }
