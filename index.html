@@ -227,6 +227,19 @@
   </div>
 
   <div class="card" style="margin-top:16px">
+    <h2><span>&#128181; Money In <span id="incCount" style="font-size:12px;color:var(--muted);font-weight:600"></span></span>
+      <button class="btn btn-primary btn-sm" onclick="openIncomeModal()">&#10133; Add money in</button>
+    </h2>
+    <p style="font-size:11.5px;color:var(--muted);margin:-4px 0 10px">Who paid you, when and how much — filled automatically when you import bank statements (transfers between your own accounts are left out). A record only: fund your wallet from the &#128176; Wallet button as usual.</p>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Date</th><th>From / source</th><th>Into</th><th style="text-align:right">Amount</th><th style="width:34px"></th></tr></thead>
+        <tbody id="incBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
     <h2>Monthly Payees
       <span>
         <button class="btn btn-primary btn-sm" id="paySelBtn" style="display:none" onclick="openBatchPay()"></button>
@@ -527,6 +540,35 @@
   </div>
 </div>
 
+<!-- Money in modal -->
+<div class="modal-bg" id="incomeModal">
+  <div class="modal" style="max-width:420px">
+    <h3>&#128181; Add Money In</h3>
+    <div class="form-grid">
+      <div>
+        <label>Amount</label>
+        <input type="number" id="iAmt" step="0.01" min="0.01" placeholder="0.00">
+      </div>
+      <div>
+        <label>Date</label>
+        <input type="date" id="iDate">
+      </div>
+      <div class="full">
+        <label>From / source</label>
+        <input type="text" id="iSource" placeholder="e.g. Catherine — order payment" maxlength="120">
+      </div>
+      <div class="full">
+        <label>Into (bank / wallet)</label>
+        <select id="iMethod"></select>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal('incomeModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveIncome()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- Log purchase modal -->
 <div class="modal-bg" id="logModal">
   <div class="modal" style="max-width:420px">
@@ -784,6 +826,7 @@ function defaults(){
       {id:'other',  name:'Other',            color:'#6b7487'}
     ],
     grocs: [],
+    incomes: [],
     payees: [],
     profile: { name:'', username:'', phone:'', photo:null, bank:'', bankCode:'', acct:'' },
     savings: { daily: 0, enabled: false, lastRun: null, entries: [], skippedTotal: 0 },
@@ -836,6 +879,7 @@ function load(){
           d.categories.splice(pi>-1 ? pi : d.categories.length, 0, nc);
         });
         d.grocs = d.grocs || [];
+        d.incomes = d.incomes || [];
         d.profile = d.profile || { name:'', username:'', phone:'', photo:null, bank:'', bankCode:'', acct:'' };
         d.savings = d.savings || { daily: 0, enabled: false, lastRun: null, entries: [], skippedTotal: 0 };
         if(!d.settings.bankCodesV1){
@@ -1310,6 +1354,11 @@ function openInsights(){
     .sort((a,b)=>themes[b].total-themes[a].total)
     .slice(0,10);
 
+  // ---- money in this month ----
+  const incs = (state.incomes||[]).filter(i=>keyOfDateStr(i.date)===mk);
+  const incTotal = incs.reduce((s,i)=>s+i.amount,0);
+  const topIncs = [...incs].sort((a,b)=>b.amount-a.amount).slice(0,5);
+
   const payeeTotal = exps.filter(e=>e.payeeId).reduce((s,e)=>s+e.amount,0);
   const savedThisMonth = (state.savings.entries||[]).filter(e=>keyOfDateStr(e.date)===mk)
     .reduce((s,e)=> s + (e.type==='withdraw' ? -e.amount : e.amount), 0);
@@ -1358,6 +1407,7 @@ function openInsights(){
       ${kpi('Daily average', fmt(avg), 'over '+elapsed+' day'+(elapsed===1?'':'s'))}
       ${projection!==null ? kpi('Projected month total', fmt(projection), 'if the pace continues') : kpi('Payees', fmt(payeeTotal), exps.filter(e=>e.payeeId).length+' payment'+(exps.filter(e=>e.payeeId).length===1?'':'s'))}
       ${kpi('Saved this month', fmt(savedThisMonth), state.savings.enabled?'auto-save ON':'auto-save off')}
+      ${incTotal>0 ? kpi('Money in', fmt(incTotal), incTotal>=total ? 'covered your spending' : fmt(total-incTotal)+' more went out than came in') : ''}
     </div>
     <h3 style="font-size:14px;margin-bottom:8px">Where the money went</h3>
     <table style="font-size:13px;margin-bottom:16px">
@@ -1371,6 +1421,9 @@ function openInsights(){
     </table>
     <h3 style="font-size:14px;margin-bottom:8px">Biggest expenses</h3>
     ${top3.map(e=>`<div class="cat-row"><span class="nm">${esc(e.catLabel || e.note || catById(e.cat).name)}<span class="note-txt" style="margin-left:6px">${new Date(e.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'})}</span></span><span class="amt" style="font-size:13px">${fmt(e.amount)}</span></div>`).join('')}
+    ${topIncs.length ? `<h3 style="font-size:14px;margin:16px 0 8px">&#128181; Where the money came from</h3>
+      ${topIncs.map(i=>`<div class="cat-row"><span class="nm">${esc(i.source)}<span class="note-txt" style="margin-left:6px">${new Date(i.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'})}</span></span><span class="amt" style="font-size:13px;color:var(--ok)">+${fmt(i.amount)}</span></div>`).join('')}
+      ${incs.length>5 ? `<div class="note-txt" style="padding:6px 0">…and ${incs.length-5} more in the Money In section (${fmt(incTotal)} total)</div>` : ''}` : ''}
     ${themeRows.length ? `<h3 style="font-size:14px;margin:16px 0 8px">&#129525; Spending themes <span class="note-txt" style="font-weight:400">— words that repeat across your notes this month</span></h3>
       ${themeRows.map(w=>`<div class="cat-row"><span class="nm" style="text-transform:capitalize">${esc(w)}<span class="note-txt" style="margin-left:6px;text-transform:none">${themes[w].n} entries</span></span><span class="amt" style="font-size:13px">${fmt(themes[w].total)}</span></div>`).join('')}` : ''}
     ${movers.length ? `<h3 style="font-size:14px;margin:16px 0 8px">Price watch</h3>
@@ -2329,7 +2382,7 @@ function openImportModal(target, rows, fileName, bankHint){
     const parts = ['<b>'+nNew+' new</b>'];
     if(nDup) parts.push(nDup+' already in your tracker');
     if(nFail) parts.push(nFail+' failed/reversed');
-    if(nIn) parts.push(nIn+' money-in');
+    if(nIn) parts.push(nIn+' money-in (recorded in &#128181; Money In, not as expenses)');
     if(nChg) parts.push(nChg+' small charges');
     if(nOwn) parts.push(nOwn+' own-account');
     if(nBad) parts.push(nBad+' unreadable dates');
@@ -2448,12 +2501,34 @@ function applyStatementImport(mapped, method, cat){
   });
   let matchedPayees = 0, linkedExisting = 0, adhocPayees = 0, autoCat = 0;
 
+  // money-in dedupe pool: an income with the same date + amount absorbs one row
+  const seenInc = {};
+  state.incomes.forEach(i=>{ const k=i.date+'|'+Number(i.amount).toFixed(2); seenInc[k]=(seenInc[k]||0)+1; });
+  let incAdded=0, incDup=0, incOwn=0, incSum=0;
+
   mapped.forEach(m=>{
     // failed / reversed / pending transactions never left the account
     if(m.status && /fail|revers|pending|declin|cancel/i.test(m.status)){ skippedFailed++; return; }
-    // money-in, reversals and platform commission rows are not expenses
-    if(m.ttype && /fund|credit|deposit|reversal|refund|commission/i.test(m.ttype)){ skippedIn++; return; }
-    const amt = parseNum(m.debit);
+    // reversals/refunds are neither spending nor income
+    if(m.ttype && /reversal|refund/i.test(m.ttype)){ skippedIn++; return; }
+    // money-in rows become Money In records (own-account transfers left out)
+    const dAmt = parseNum(m.debit), cAmt = parseNum(m.credit);
+    if((m.ttype && /fund|credit|deposit|commission/i.test(m.ttype)) || (cAmt>0 && !(dAmt>0))){
+      if(!(cAmt>0)){ skippedIn++; return; }
+      const iDate = parseDateFlex(m.date);
+      if(!iDate){ badDate++; return; }
+      const iNote = String(m.note||'');
+      if(/own acc(oun)?t|\bown to\b|own transfer|between my account/i.test(iNote) || ownAccts.some(a=>iNote.includes(a))){ incOwn++; return; }
+      const ik = iDate+'|'+cAmt.toFixed(2);
+      if(seenInc[ik] > 0){ seenInc[ik]--; incDup++; return; }
+      state.incomes.push({
+        id: 'i'+Date.now()+Math.random().toString(36).slice(2,6),
+        date: iDate, amount: cAmt, source: iNote || 'Money in (from statement)', method
+      });
+      incAdded++; incSum += cAmt;
+      return;
+    }
+    const amt = dAmt;
     if(!amt || amt<=0){ skippedIn++; return; }
     const date = parseDateFlex(m.date);
     if(!date){ badDate++; return; }
@@ -2552,7 +2627,10 @@ function applyStatementImport(mapped, method, cat){
   if(skippedDup) bits.push(skippedDup+' already in your tracker — skipped');
   if(ownTransfers) bits.push(ownTransfers+' transfer'+(ownTransfers===1?'':'s')+' between your own accounts — skipped');
   if(skippedFailed) bits.push(skippedFailed+' failed/reversed — skipped');
-  if(skippedIn) bits.push(skippedIn+' money-in/blank row'+(skippedIn===1?'':'s')+' skipped');
+  if(incAdded) bits.push(incAdded+' money-in recorded in the &#128181; Money In section ('+fmt(incSum)+' total)');
+  if(incDup) bits.push(incDup+' money-in already recorded — skipped');
+  if(incOwn) bits.push(incOwn+' transfer'+(incOwn===1?'':'s')+' from your own accounts left out of Money In');
+  if(skippedIn) bits.push(skippedIn+' blank/reversal row'+(skippedIn===1?'':'s')+' skipped');
   if(chargeCount) bits.push(chargeCount+' small bank charges ('+fmt(chargeSum)+' total) '+(chargeBooked ? 'combined into '+chargeBooked+' Bank Charges expense'+(chargeBooked===1?'':'s (one per month)') : 'already booked as Bank Charges — skipped'));
   if(cardRows) bits.push(cardRows+' card/POS row'+(cardRows===1?'':'s')+' set to '+cardMethodFor(method));
   if(methodFixed) bits.push(methodFixed+' existing entr'+(methodFixed===1?'y':'ies')+' that said "Cash" corrected to the right bank');
@@ -3066,6 +3144,47 @@ function exportCSV(){
   toast('CSV downloaded');
 }
 
+// ---------- money in ----------
+function openIncomeModal(){
+  $('iAmt').value = ''; $('iSource').value = '';
+  $('iDate').value = todayStr();
+  $('iMethod').innerHTML = methodOptionsHtml();
+  $('incomeModal').classList.add('open');
+}
+function saveIncome(){
+  const amt = parseNum($('iAmt').value);
+  if(!(amt>0)){ toast('Enter the amount received'); return; }
+  if(!$('iDate').value){ toast('Pick the date'); return; }
+  state.incomes.push({
+    id: 'i'+Date.now()+Math.random().toString(36).slice(2,6),
+    date: $('iDate').value,
+    amount: amt,
+    source: $('iSource').value.trim() || 'Money in',
+    method: $('iMethod').value
+  });
+  persist(); render();
+  closeModal('incomeModal');
+  toast('&#128181; '+fmt(amt)+' recorded');
+}
+function delIncome(id){
+  if(!confirm('Remove this money-in record?')) return;
+  state.incomes = state.incomes.filter(i=>i.id!==id);
+  persist(); render();
+}
+function renderIncomes(){
+  const mk = monthKey(viewMonth);
+  const list = state.incomes.filter(i=>keyOfDateStr(i.date)===mk).sort((a,b)=>b.date.localeCompare(a.date));
+  const total = list.reduce((s,i)=>s+i.amount,0);
+  $('incCount').textContent = list.length ? '· '+fmt(total)+' received this month' : '';
+  $('incBody').innerHTML = list.length ? list.map(i=>`<tr>
+    <td style="white-space:nowrap">${new Date(i.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'})}</td>
+    <td>${esc(i.source)}</td>
+    <td>${esc(i.method||'')}</td>
+    <td class="amt" style="text-align:right;color:var(--ok)">+${fmt(i.amount)}</td>
+    <td><button class="icon-btn" onclick="delIncome('${i.id}')" title="Remove">&#128465;</button></td>
+  </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:14px">Nothing recorded for this month yet — import a bank statement or use &#10133; Add money in.</td></tr>';
+}
+
 async function exportExcel(){
   if(!state.expenses.length){ toast('Nothing to export yet'); return; }
   try{ await loadXLSX(); }
@@ -3101,12 +3220,19 @@ async function exportExcel(){
   const ws2 = XLSX.utils.aoa_to_sheet(sumRows);
   ws2['!cols'] = [{wch:16},{wch:14}].concat(catCols.map(()=>({wch:14})));
   XLSX.utils.book_append_sheet(wb, ws2, 'Monthly summary');
+  if((state.incomes||[]).length){
+    const incRows = [['Date','From / source','Into','Amount']];
+    [...state.incomes].sort((a,b)=>a.date.localeCompare(b.date)).forEach(i=>incRows.push([i.date, i.source, i.method||'', i.amount]));
+    const ws3 = XLSX.utils.aoa_to_sheet(incRows);
+    ws3['!cols'] = [{wch:11},{wch:50},{wch:24},{wch:14}];
+    XLSX.utils.book_append_sheet(wb, ws3, 'Money In');
+  }
   XLSX.writeFile(wb, 'expenses-'+todayStr()+'.xlsx');
-  toast('Excel file downloaded — Expenses sheet + Monthly summary by category');
+  toast('Excel file downloaded — Expenses, Monthly summary'+((state.incomes||[]).length?' and Money In':''));
 }
 
 // bumped on every update so a cached old copy is easy to spot
-const APP_VERSION = 'v26';
+const APP_VERSION = 'v27';
 document.addEventListener('DOMContentLoaded', ()=>{
   const c = document.getElementById('appVersionChip');
   if(c) c.textContent = APP_VERSION;
@@ -3273,6 +3399,7 @@ function render(){
   renderProfileHeader();
   renderPayees(mk);
   renderGrocery();
+  renderIncomes();
   drawDonut(byGroup, total);
   drawTrend();
 }
