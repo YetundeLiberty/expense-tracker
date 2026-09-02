@@ -2333,7 +2333,15 @@ function confirmImport(){
     return o;
   });
   if(importCtx.target==='payees') applyPayeeImport(mapped);
-  else if(importCtx.target==='statement') applyStatementImport(mapped, $('imap_x_method').value, $('imap_x_cat').value);
+  else if(importCtx.target==='statement'){
+    // money on a bank statement is never Cash — this is always the dropdown
+    // sitting on its first option by mistake
+    if($('imap_x_method').value === 'Cash'){
+      toast('⚠️ Pick the bank under "Payment method" — a bank statement import is never Cash (use "Bank transfer" if unsure)');
+      return;
+    }
+    applyStatementImport(mapped, $('imap_x_method').value, $('imap_x_cat').value);
+  }
   else applyItemsImport(mapped);
   closeModal('importModal');
   importCtx = null;
@@ -2371,9 +2379,16 @@ function guessCategory(note){
 function applyStatementImport(mapped, method, cat){
   if(!state.categories.some(c=>c.id===cat)) cat = 'other';
   let added=0, skippedIn=0, skippedDup=0, skippedFailed=0, badDate=0, lastDate=null;
-  let chargeCount=0, chargeSum=0, cardRows=0;
+  let chargeCount=0, chargeSum=0, cardRows=0, methodFixed=0;
   const chargesByMonth = {}; // 'YYYY-MM' -> {count, sum, last}
   const cardMethod = cardMethodFor(method);
+  // duplicates whose existing entry says "Cash" (from an import that ran
+  // with the wrong method) get their method repaired to this statement's
+  const healMethod = (date, amt, better)=>{
+    if(!better || better==='Cash') return;
+    const ex = state.expenses.find(e=>e.method==='Cash' && e.date===date && Math.abs(e.amount-amt)<0.005);
+    if(ex){ ex.method = better; methodFixed++; }
+  };
 
   // duplicate sieve: an existing expense with the same date and amount
   // (however it was entered — by hand, via a payee payment, or a previous
@@ -2422,7 +2437,7 @@ function applyStatementImport(mapped, method, cat){
     // charge already in the tracker as its own entry (e.g. from an older
     // import) is a duplicate, not a new charge
     if(isChargeRow(m, amt)){
-      if(consume(date, amt)){ skippedDup++; return; }
+      if(consume(date, amt)){ skippedDup++; healMethod(date, amt, method); return; }
       chargeCount++; chargeSum+=amt;
       const mk = date.slice(0,7);
       const c = chargesByMonth[mk] = chargesByMonth[mk] || {count:0, sum:0, last:date};
@@ -2445,8 +2460,12 @@ function applyStatementImport(mapped, method, cat){
     // imported as a normal expense for the owner to judge
     const pMatch = (pAcct && Math.abs(amt - pAcct.amount) < 0.005) ? pAcct : null;
     if(pAcct && !pMatch) adhocPayees++;
+    // card / POS / ATM rows get the bank's card method instead of transfer
+    let rowMethod = method;
+    if(cardMethod && CARD_NARR.test(m.note||'')){ rowMethod = cardMethod; cardRows++; }
     if(consume(date, amt)){
       skippedDup++;
+      healMethod(date, amt, rowMethod);
       // self-heal: the row is already in the tracker (entered by hand or an
       // earlier import) but not linked to its payee — link it now
       if(pMatch){
@@ -2457,9 +2476,6 @@ function applyStatementImport(mapped, method, cat){
     }
     const gCat = pMatch ? null : guessCategory(m.note);
     if(gCat && gCat !== cat) autoCat++;
-    // card / POS / ATM rows get the bank's card method instead of transfer
-    let rowMethod = method;
-    if(cardMethod && CARD_NARR.test(m.note||'')){ rowMethod = cardMethod; cardRows++; }
     const exp = {
       id: 'e'+Date.now()+Math.random().toString(36).slice(2,6),
       amount: amt, date, method: rowMethod,
@@ -2505,6 +2521,7 @@ function applyStatementImport(mapped, method, cat){
   if(skippedIn) bits.push(skippedIn+' money-in/blank row'+(skippedIn===1?'':'s')+' skipped');
   if(chargeCount) bits.push(chargeCount+' small bank charges ('+fmt(chargeSum)+' total) '+(chargeBooked ? 'combined into '+chargeBooked+' Bank Charges expense'+(chargeBooked===1?'':'s (one per month)') : 'already booked as Bank Charges — skipped'));
   if(cardRows) bits.push(cardRows+' card/POS row'+(cardRows===1?'':'s')+' set to '+cardMethodFor(method));
+  if(methodFixed) bits.push(methodFixed+' existing entr'+(methodFixed===1?'y':'ies')+' that said "Cash" corrected to the right bank');
   if(badDate) bits.push(badDate+' unreadable date'+(badDate===1?'':'s'));
   toast(bits.join(' · '));
 }
