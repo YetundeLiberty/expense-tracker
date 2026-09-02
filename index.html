@@ -107,7 +107,7 @@
     <div class="brand">
       <div class="mark" id="brandMark" onclick="openProfile()" style="cursor:pointer;overflow:hidden" title="Your profile — click to edit">&#128181;</div>
       <div>
-        <h1 id="brandTitle">Personal Expense Tracker</h1>
+        <h1 style="display:flex;align-items:center;gap:6px"><span id="brandTitle">Personal Expense Tracker</span> <span id="appVersionChip" style="font-size:10px;font-weight:500;color:var(--muted)"></span></h1>
         <p id="brandSub">Know where your money goes</p>
       </div>
     </div>
@@ -307,6 +307,7 @@
       <button class="btn btn-danger" onclick="clearAll()">Clear all data</button>
       <button class="btn btn-primary" onclick="saveSettings()">Save</button>
     </div>
+    <p id="appVersionLine" style="font-size:11px;color:var(--muted);margin-top:10px;text-align:center"></p>
   </div>
 </div>
 
@@ -2409,8 +2410,8 @@ function applyStatementImport(mapped, method, cat){
   // duplicates whose existing entry says "Cash" (from an import that ran
   // with the wrong method) get their method repaired to this statement's
   const healMethod = (date, amt, better)=>{
-    if(!better || better==='Cash') return;
-    const ex = state.expenses.find(e=>e.method==='Cash' && e.date===date && Math.abs(e.amount-amt)<0.005);
+    if(!better || better==='Cash' || better==='Bank transfer') return;
+    const ex = state.expenses.find(e=>(e.method==='Cash' || e.method==='Bank transfer') && e.date===date && Math.abs(e.amount-amt)<0.005);
     if(ex){ ex.method = better; methodFixed++; }
   };
 
@@ -3103,6 +3104,15 @@ async function exportExcel(){
   XLSX.writeFile(wb, 'expenses-'+todayStr()+'.xlsx');
   toast('Excel file downloaded — Expenses sheet + Monthly summary by category');
 }
+
+// bumped on every update so a cached old copy is easy to spot
+const APP_VERSION = 'v26';
+document.addEventListener('DOMContentLoaded', ()=>{
+  const c = document.getElementById('appVersionChip');
+  if(c) c.textContent = APP_VERSION;
+  const l = document.getElementById('appVersionLine');
+  if(l) l.textContent = 'App version '+APP_VERSION+' — if a fix you were promised is missing, close this tab, wait a few minutes and open the site again.';
+});
 
 // ---------- render ----------
 function render(){
