@@ -2418,8 +2418,11 @@ function applyStatementImport(mapped, method, cat){
     const date = parseDateFlex(m.date);
     if(!date){ badDate++; return; }
     // tiny bank charges (stamp duty, SMS, VAT) are summed into one expense
-    // per month, so each month's envelope carries its own charges
+    // per month, so each month's envelope carries its own charges — but a
+    // charge already in the tracker as its own entry (e.g. from an older
+    // import) is a duplicate, not a new charge
     if(isChargeRow(m, amt)){
+      if(consume(date, amt)){ skippedDup++; return; }
       chargeCount++; chargeSum+=amt;
       const mk = date.slice(0,7);
       const c = chargesByMonth[mk] = chargesByMonth[mk] || {count:0, sum:0, last:date};
