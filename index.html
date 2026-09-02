@@ -123,6 +123,7 @@
       <button class="btn btn-ghost" onclick="openInsights()">&#128202; Report &amp; Analysis</button>
       <button class="btn btn-ghost" onclick="openSettings()">&#9881;&#65039; Settings</button>
       <button class="btn btn-ghost" onclick="exportCSV()">&#11015;&#65039; Export CSV</button>
+      <button class="btn btn-ghost" onclick="exportExcel()">&#128202; Export Excel</button>
     </div>
   </header>
 
@@ -1287,6 +1288,27 @@ function openInsights(){
   }));
   movers.sort((a,b)=>Math.abs(b.ch)-Math.abs(a.ch));
 
+  // ---- spending themes: words that repeat across this month's notes ----
+  // (e.g. every "chapman" purchase for the wedding, all the "tip" payments)
+  const THEME_STOP = new Set(('the,and,for,from,with,into,out,via,mob,nip,ref,refs,trf,transfer,outward,inward,payment,payments,instant,pos,web,atm,purchase,transaction,bank,banks,plc,limited,ltd,services,service,digital,monthly,charge,charges,fees,fee,vat,levy,stamp,duty,duties,successful,liberty,pay,opay,paycom,palmpay,gtbank,gtworld,gtw,gtb,uba,fbn,firstbank,access,wema,zenith,union,sterling,stanbic,kmb,mmb,fid,acc,opy,prb,pst,zib,mfb,moniepoint,fairmoney,paystack,august,september,october,july,june,commission,export,name,account,between,customers,alert,microfinance,ussd,mtn,sent,paid,other').split(','));
+  const themes = {};
+  exps.forEach(e=>{
+    const words = String((e.note||'')+' '+(e.catLabel||'')).toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/);
+    const seenW = new Set();
+    words.forEach(w=>{
+      w = w.replace(/s$/,'');
+      if(w.length<3 || THEME_STOP.has(w) || THEME_STOP.has(w+'s')) return;
+      if(seenW.has(w)) return;
+      seenW.add(w);
+      const t = themes[w] = themes[w] || {n:0,total:0};
+      t.n++; t.total += e.amount;
+    });
+  });
+  const themeRows = Object.keys(themes)
+    .filter(w=>themes[w].n>=2)
+    .sort((a,b)=>themes[b].total-themes[a].total)
+    .slice(0,10);
+
   const payeeTotal = exps.filter(e=>e.payeeId).reduce((s,e)=>s+e.amount,0);
   const savedThisMonth = (state.savings.entries||[]).filter(e=>keyOfDateStr(e.date)===mk)
     .reduce((s,e)=> s + (e.type==='withdraw' ? -e.amount : e.amount), 0);
@@ -1348,6 +1370,8 @@ function openInsights(){
     </table>
     <h3 style="font-size:14px;margin-bottom:8px">Biggest expenses</h3>
     ${top3.map(e=>`<div class="cat-row"><span class="nm">${esc(e.catLabel || e.note || catById(e.cat).name)}<span class="note-txt" style="margin-left:6px">${new Date(e.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'})}</span></span><span class="amt" style="font-size:13px">${fmt(e.amount)}</span></div>`).join('')}
+    ${themeRows.length ? `<h3 style="font-size:14px;margin:16px 0 8px">&#129525; Spending themes <span class="note-txt" style="font-weight:400">— words that repeat across your notes this month</span></h3>
+      ${themeRows.map(w=>`<div class="cat-row"><span class="nm" style="text-transform:capitalize">${esc(w)}<span class="note-txt" style="margin-left:6px;text-transform:none">${themes[w].n} entries</span></span><span class="amt" style="font-size:13px">${fmt(themes[w].total)}</span></div>`).join('')}` : ''}
     ${movers.length ? `<h3 style="font-size:14px;margin:16px 0 8px">Price watch</h3>
       ${movers.slice(0,5).map(m=>`<div class="cat-row"><span class="nm">${esc(m.desc)}</span><span class="note-txt">${fmt(m.prevUnit)} &rarr; ${fmt(m.unit)}</span>${chBadge(m.unit,m.prevUnit)}</div>`).join('')}` : ''}
     <h3 style="font-size:14px;margin:16px 0 8px">&#128161; Advice</h3>
@@ -3039,6 +3063,45 @@ function exportCSV(){
   a.download = 'expenses-'+todayStr()+'.csv';
   a.click(); URL.revokeObjectURL(a.href);
   toast('CSV downloaded');
+}
+
+async function exportExcel(){
+  if(!state.expenses.length){ toast('Nothing to export yet'); return; }
+  try{ await loadXLSX(); }
+  catch(e){ toast('Excel export needs internet once to load its writer — or use Export CSV (opens in Excel too)'); return; }
+  const expRows = [['Date','Category','Amount','Payment method','Note','Payee','Items']];
+  [...state.expenses].sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>{
+    const itemsTxt = (e.items||[]).map(it=>{
+      const q = parseNum(it.qty), u = parseNum(it.unit);
+      return it.desc + (q?' x'+q:'') + (u?' @'+u:'') + ' = ' + parseNum(it.total);
+    }).join('; ');
+    const py = e.payeeId ? (state.payees.find(p=>p.id===e.payeeId)||{}).name||'' : '';
+    expRows.push([e.date, e.catLabel || catById(e.cat).name, e.amount, e.method, e.note, py, itemsTxt]);
+  });
+  // monthly summary: total per month + each category as its own column
+  const months = {}, catSet = new Set();
+  state.expenses.forEach(e=>{
+    const mk = keyOfDateStr(e.date);
+    const cn = e.catLabel || catById(e.cat).name;
+    catSet.add(cn);
+    const m = months[mk] = months[mk] || {total:0, cats:{}};
+    m.total += e.amount;
+    m.cats[cn] = (m.cats[cn]||0) + e.amount;
+  });
+  const catCols = [...catSet].sort();
+  const sumRows = [['Month','Total spent'].concat(catCols)];
+  Object.keys(months).sort().forEach(mk=>{
+    sumRows.push([monthLabel(mk), months[mk].total].concat(catCols.map(c=>months[mk].cats[c]||0)));
+  });
+  const wb = XLSX.utils.book_new();
+  const ws1 = XLSX.utils.aoa_to_sheet(expRows);
+  ws1['!cols'] = [{wch:11},{wch:18},{wch:12},{wch:24},{wch:50},{wch:20},{wch:40}];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Expenses');
+  const ws2 = XLSX.utils.aoa_to_sheet(sumRows);
+  ws2['!cols'] = [{wch:16},{wch:14}].concat(catCols.map(()=>({wch:14})));
+  XLSX.utils.book_append_sheet(wb, ws2, 'Monthly summary');
+  XLSX.writeFile(wb, 'expenses-'+todayStr()+'.xlsx');
+  toast('Excel file downloaded — Expenses sheet + Monthly summary by category');
 }
 
 // ---------- render ----------
