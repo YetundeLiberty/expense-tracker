@@ -1931,6 +1931,7 @@ const STATEMENT_PDF_SCHEMA = {
   type: 'object',
   properties: {
     account_number: { type: 'string' },
+    bank_name: { type: 'string' },
     rows: {
       type: 'array',
       items: {
@@ -1946,7 +1947,7 @@ const STATEMENT_PDF_SCHEMA = {
       }
     }
   },
-  required: ['account_number','rows'],
+  required: ['account_number','bank_name','rows'],
   additionalProperties: false
 };
 function bufToB64(buf){
@@ -2022,7 +2023,7 @@ async function sendStatementScan(payload, fileName){
   const mediaBlocks = payload.images
     ? payload.images.map(d=>({ type:'image', source:{ type:'base64', media_type:'image/jpeg', data:d } }))
     : [{ type:'document', source:{ type:'base64', media_type:'application/pdf', data: payload.pdf } }];
-  const PROMPT = 'Extract EVERY transaction row from this bank statement. Dates as YYYY-MM-DD. Amounts as plain numbers. Classify each row type: "payment" (real outgoing payments/POS/transfers/airtime), "charge" (commission/VAT/stamp duty/SMS/maintenance fees), "credit" (money in), "reversal" (reversed transactions). Include beneficiary account numbers when visible.';
+  const PROMPT = 'Extract EVERY transaction row from this bank statement. Dates as YYYY-MM-DD. Amounts as plain numbers. Classify each row type: "payment" (real outgoing payments/POS/transfers/airtime), "charge" (commission/VAT/stamp duty/SMS/maintenance fees), "credit" (money in), "reversal" (reversed transactions). Include beneficiary account numbers when visible. bank_name = the bank that ISSUED this statement (from its letterhead/logo), not banks mentioned in transaction narrations; empty string if unclear.';
   try{
     let res;
     if(state.settings.apiKey){
@@ -2067,7 +2068,7 @@ async function sendStatementScan(payload, fileName){
     if(!rows.length) throw new Error('No transactions found in that PDF — is it a bank statement?');
     const tab = [['date','narration','debit','credit','status','type','beneficiary_account']]
       .concat(rows.map(x=>[x.date, x.narration, x.debit||'', x.credit||'', x.status||'', x.type||'', x.beneficiary_account||'']));
-    openImportModal('statement', tab, fileName);
+    openImportModal('statement', tab, fileName, parsed.bank_name||'');
   }catch(err){
     toast('⚠️ PDF read failed: '+(err && err.message ? err.message : 'unknown error'));
   }
@@ -2190,8 +2191,26 @@ function cardMethodFor(method){
   if(!key) return null;
   return state.methods.find(x=>/^card/i.test(x) && x.toLowerCase().includes(key)) || null;
 }
-function openImportModal(target, rows, fileName){
+function openImportModal(target, rows, fileName, bankHint){
   if(!rows || rows.length < 2){ toast('That file has no data rows'); return; }
+  // real bank exports often carry preamble rows (bank letterhead, account
+  // holder, period) above the actual header row — find the header row and
+  // keep the preamble text for the bank guess
+  let preambleTxt = '';
+  const looksHeader = r => {
+    const t = r.map(c=>String(c).trim().toLowerCase());
+    const hasDate = t.some(c=>/date/.test(c));
+    const hasMoney = t.some(c=>/debit|credit|withdraw|deposit|lodgement|money ?(in|out)|amount|balance/.test(c));
+    const hasText = t.some(c=>/narrat|desc|detail|remark|particular|reference/.test(c));
+    return hasDate && (hasMoney || hasText);
+  };
+  for(let i=0; i<Math.min(rows.length-1, 12); i++){
+    if(looksHeader(rows[i])){
+      preambleTxt = rows.slice(0,i).map(r=>r.join(' ')).join(' ');
+      if(i>0) rows = rows.slice(i);
+      break;
+    }
+  }
   const headers = rows[0].map(h=>String(h).trim());
   // steer statement files away from the item-list importer: a grocery list
   // never has a date column next to debit/balance-style money columns
@@ -2235,15 +2254,16 @@ function openImportModal(target, rows, fileName){
       </div>
       <p style="font-size:11.5px;color:var(--muted);margin-top:8px">Credits (money in) and rows already imported are skipped automatically. Card/POS rows get the bank's card method, small bank charges are combined into one Bank Charges expense, and the narration picks each row's category. Recategorise afterwards with &#9998; if needed.</p>
     </div>`;
-    // pick the bank from the file name, falling back to the header row
-    // (beneficiary banks in narrations are ignored — they mislead)
+    // pick the bank: what the AI read off a scanned PDF's letterhead first,
+    // then the file name, then the header row (beneficiary banks in
+    // narrations are ignored — they mislead)
     const bankFrom = t => /gtb|gt bank|gtbank|guaranty/.test(t) ? 'Transfer – GTBank'
                  : t.includes('providus') ? 'Transfer – Providus Bank'
                  : /first ?bank|firstbank/.test(t) ? 'Transfer – First Bank'
                  : t.includes('paybox') ? 'Transfer – PayBox360'
                  : t.includes('liberty') ? 'Transfer – Liberty Pay'
                  : null;
-    const guessM = bankFrom(fileName.toLowerCase()) || bankFrom(headers.join(' ').toLowerCase()) || 'Bank transfer';
+    const guessM = bankFrom(String(bankHint||'').toLowerCase()) || bankFrom(preambleTxt.toLowerCase()) || bankFrom(fileName.toLowerCase()) || bankFrom(headers.join(' ').toLowerCase()) || 'Bank transfer';
     if(state.methods.includes(guessM)) $('imap_x_method').value = guessM;
     if(state.categories.some(c=>c.id==='other')) $('imap_x_cat').value = 'other';
 
@@ -2288,7 +2308,9 @@ function openImportModal(target, rows, fileName){
     if(nChg) parts.push(nChg+' small charges');
     if(nOwn) parts.push(nOwn+' own-account');
     if(nBad) parts.push(nBad+' unreadable dates');
-    $('importMap').innerHTML += `<div style="background:var(--accent-soft);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:13px">&#128269; Preview of ${gm.length} rows: ${parts.join(' · ')}. Only the new rows will be imported.</div>`;
+    // insertAdjacentHTML: innerHTML += would re-parse the whole form and
+    // reset the method/category dropdowns that were just pre-selected
+    $('importMap').insertAdjacentHTML('beforeend', `<div style="background:var(--accent-soft);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:13px">&#128269; Preview of ${gm.length} rows: ${parts.join(' · ')}. Only the new rows will be imported.</div>`);
   }
   $('importPreview').innerHTML = `<div style="color:var(--muted);margin-bottom:6px">Preview — first ${Math.min(3,importCtx.dataRows.length)} of ${importCtx.dataRows.length} rows:</div>
     <table style="font-size:11.5px"><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
