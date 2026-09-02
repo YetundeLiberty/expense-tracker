@@ -2174,7 +2174,7 @@ function parseDateFlex(s){
 }
 // small bank charges (stamp duty, SMS alerts, EMTL, NIP fees, VAT…) named in
 // the narration rather than a transaction-type column
-const CHARGE_NARR = /stamp ?duty|sms (alert|charge|notif)|\bemtl\b|electronic money transfer levy|nip (charge|fee|comm)|transfer (fee|charge)|\bvat\b|acc(oun)?t maint|card maint|maintenance fee|\bcot\b|alert (fee|charge)|\blevy\b|commission/i;
+const CHARGE_NARR = /stamp ?duty|sms (alert|charge|notif)|\bemtl\b|electronic money transfer levy|nip (charge|fee|comm)|transfer (fee|charge)|\bvat\b|acc(oun)?t maint|card maint|maintenance fee|\bcot\b|alert (fee|charge)|\blevy\b|commission|\bcharges?\b/i;
 const isChargeRow = (m, amt)=>
   (m.ttype && /vat|sms|levy|charge|duty|stamp|fee/i.test(m.ttype)) ||
   (amt <= 500 && CHARGE_NARR.test(m.note||''));
@@ -2371,7 +2371,8 @@ function guessCategory(note){
 function applyStatementImport(mapped, method, cat){
   if(!state.categories.some(c=>c.id===cat)) cat = 'other';
   let added=0, skippedIn=0, skippedDup=0, skippedFailed=0, badDate=0, lastDate=null;
-  let chargeCount=0, chargeSum=0, chargeDate=null, cardRows=0;
+  let chargeCount=0, chargeSum=0, cardRows=0;
+  const chargesByMonth = {}; // 'YYYY-MM' -> {count, sum, last}
   const cardMethod = cardMethodFor(method);
 
   // duplicate sieve: an existing expense with the same date and amount
@@ -2417,7 +2418,14 @@ function applyStatementImport(mapped, method, cat){
     const date = parseDateFlex(m.date);
     if(!date){ badDate++; return; }
     // tiny bank charges (stamp duty, SMS, VAT) are summed into one expense
-    if(isChargeRow(m, amt)){ chargeCount++; chargeSum+=amt; if(!chargeDate || date>chargeDate) chargeDate = date; return; }
+    // per month, so each month's envelope carries its own charges
+    if(isChargeRow(m, amt)){
+      chargeCount++; chargeSum+=amt;
+      const mk = date.slice(0,7);
+      const c = chargesByMonth[mk] = chargesByMonth[mk] || {count:0, sum:0, last:date};
+      c.count++; c.sum+=amt; if(date>c.last) c.last = date;
+      return;
+    }
     // transfer to one of the owner's own accounts → not an expense
     if(ownAccts.length){
       const bd = String(m.bacct||'').replace(/\D/g,'');
@@ -2460,22 +2468,25 @@ function applyStatementImport(mapped, method, cat){
     added++;
     if(!lastDate || date>lastDate) lastDate = date;
   });
-  // the summed bank charges become one expense in the Bank Charges category
-  // (skipped if this statement's charges were already booked by a past import)
-  let chargeBooked = false;
-  if(chargeSum > 0 && chargeDate && state.categories.some(c=>c.id==='bankcharges')){
-    const total = +chargeSum.toFixed(2);
-    const already = state.expenses.some(e=>e.cat==='bankcharges' && e.date===chargeDate && Math.abs(e.amount-total)<0.005);
-    if(!already){
+  // the summed bank charges become one expense per month in the Bank Charges
+  // category (skipped if already booked by a past import of this statement)
+  let chargeBooked = 0;
+  if(state.categories.some(c=>c.id==='bankcharges')){
+    Object.keys(chargesByMonth).forEach(mk=>{
+      const c = chargesByMonth[mk];
+      const total = +c.sum.toFixed(2);
+      if(total <= 0) return;
+      const already = state.expenses.some(e=>e.cat==='bankcharges' && e.date===c.last && Math.abs(e.amount-total)<0.005);
+      if(already) return;
       state.expenses.push({
         id: 'e'+Date.now()+Math.random().toString(36).slice(2,6),
-        amount: total, date: chargeDate, method,
+        amount: total, date: c.last, method,
         cat: 'bankcharges',
-        note: 'Bank charges — '+chargeCount+' small charge'+(chargeCount===1?'':'s')+' from this statement'
+        note: 'Bank charges — '+c.count+' small charge'+(c.count===1?'':'s')+' from this statement'
       });
-      chargeBooked = true;
-      if(!lastDate || chargeDate>lastDate) lastDate = chargeDate;
-    }
+      chargeBooked++;
+      if(!lastDate || c.last>lastDate) lastDate = c.last;
+    });
   }
   persist();
   if(lastDate) viewMonth = new Date(lastDate.slice(0,7)+'-01T00:00:00');
@@ -2489,7 +2500,7 @@ function applyStatementImport(mapped, method, cat){
   if(ownTransfers) bits.push(ownTransfers+' transfer'+(ownTransfers===1?'':'s')+' between your own accounts — skipped');
   if(skippedFailed) bits.push(skippedFailed+' failed/reversed — skipped');
   if(skippedIn) bits.push(skippedIn+' money-in/blank row'+(skippedIn===1?'':'s')+' skipped');
-  if(chargeCount) bits.push(chargeCount+' small bank charges ('+fmt(chargeSum)+' total) '+(chargeBooked ? 'combined into one Bank Charges expense' : 'already booked as Bank Charges — skipped'));
+  if(chargeCount) bits.push(chargeCount+' small bank charges ('+fmt(chargeSum)+' total) '+(chargeBooked ? 'combined into '+chargeBooked+' Bank Charges expense'+(chargeBooked===1?'':'s (one per month)') : 'already booked as Bank Charges — skipped'));
   if(cardRows) bits.push(cardRows+' card/POS row'+(cardRows===1?'':'s')+' set to '+cardMethodFor(method));
   if(badDate) bits.push(badDate+' unreadable date'+(badDate===1?'':'s'));
   toast(bits.join(' · '));
