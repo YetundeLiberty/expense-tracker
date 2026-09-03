@@ -1367,10 +1367,25 @@ function openInsights(){
     .sort((a,b)=>themes[b].total-themes[a].total)
     .slice(0,10);
 
-  // ---- money in this month ----
+  // ---- money in this month, grouped by source ----
   const incs = (state.incomes||[]).filter(i=>keyOfDateStr(i.date)===mk);
   const incTotal = incs.reduce((s,i)=>s+i.amount,0);
-  const topIncs = [...incs].sort((a,b)=>b.amount-a.amount).slice(0,5);
+  const incBySrc = {};
+  incs.forEach(i=>{
+    const key = String(i.source||'Money in').trim().toLowerCase();
+    const g = incBySrc[key] = incBySrc[key] || {name:String(i.source||'Money in').trim(), n:0, total:0};
+    g.n++; g.total += i.amount;
+  });
+  const incRows = Object.keys(incBySrc).sort((a,b)=>incBySrc[b].total-incBySrc[a].total);
+
+  // ---- money out by bank / method ----
+  const byBank = {};
+  exps.forEach(e=>{
+    const m = e.method || 'Not set';
+    (byBank[m] = byBank[m] || {n:0,total:0});
+    byBank[m].n++; byBank[m].total += e.amount;
+  });
+  const bankRows = Object.keys(byBank).sort((a,b)=>byBank[b].total-byBank[a].total);
 
   const payeeTotal = exps.filter(e=>e.payeeId).reduce((s,e)=>s+e.amount,0);
   const savedThisMonth = (state.savings.entries||[]).filter(e=>keyOfDateStr(e.date)===mk)
@@ -1422,6 +1437,9 @@ function openInsights(){
       ${kpi('Saved this month', fmt(savedThisMonth), state.savings.enabled?'auto-save ON':'auto-save off')}
       ${incTotal>0 ? kpi('Money in', fmt(incTotal), incTotal>=total ? 'covered your spending' : fmt(total-incTotal)+' more went out than came in') : ''}
     </div>
+    ${incTotal>0 ? `<div style="background:${incTotal>=total?'#e7f6ec':'#fdecec'};border-radius:12px;padding:10px 14px;margin-bottom:16px;font-size:13.5px;font-weight:600">
+      &#128181; In ${fmt(incTotal)} &nbsp;&middot;&nbsp; &#128184; Out ${fmt(total)} &nbsp;&middot;&nbsp; Net <span style="color:${incTotal>=total?'var(--ok)':'var(--danger)'}">${incTotal>=total?'+':'&minus;'}${fmt(Math.abs(incTotal-total))}</span>
+    </div>` : ''}
     <h3 style="font-size:14px;margin-bottom:8px">Where the money went</h3>
     <table style="font-size:13px;margin-bottom:16px">
       <thead><tr><th>Category</th><th style="text-align:right">Amount</th><th style="text-align:right">Share</th><th>vs ${pmName}</th></tr></thead>
@@ -1434,9 +1452,27 @@ function openInsights(){
     </table>
     <h3 style="font-size:14px;margin-bottom:8px">Biggest expenses</h3>
     ${top3.map(e=>`<div class="cat-row"><span class="nm">${esc(e.catLabel || e.note || catById(e.cat).name)}<span class="note-txt" style="margin-left:6px">${new Date(e.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'})}</span></span><span class="amt" style="font-size:13px">${fmt(e.amount)}</span></div>`).join('')}
-    ${topIncs.length ? `<h3 style="font-size:14px;margin:16px 0 8px">&#128181; Where the money came from</h3>
-      ${topIncs.map(i=>`<div class="cat-row"><span class="nm">${esc(i.source)}<span class="note-txt" style="margin-left:6px">${new Date(i.date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'})}</span></span><span class="amt" style="font-size:13px;color:var(--ok)">+${fmt(i.amount)}</span></div>`).join('')}
-      ${incs.length>5 ? `<div class="note-txt" style="padding:6px 0">…and ${incs.length-5} more in the Money In section (${fmt(incTotal)} total)</div>` : ''}` : ''}
+    ${incRows.length ? `<h3 style="font-size:14px;margin:16px 0 8px">&#128181; Where the money came from</h3>
+      <table style="font-size:13px;margin-bottom:4px">
+        <thead><tr><th>Source</th><th style="text-align:right">Amount</th><th style="text-align:right">Share</th></tr></thead>
+        <tbody>${incRows.slice(0,8).map(k=>`<tr>
+          <td>${esc(incBySrc[k].name)}${incBySrc[k].n>1?` <span class="note-txt">×${incBySrc[k].n}</span>`:''}</td>
+          <td class="amt" style="text-align:right;color:var(--ok)">+${fmt(incBySrc[k].total)}</td>
+          <td style="text-align:right">${(incBySrc[k].total/incTotal*100).toFixed(0)}%</td>
+        </tr>`).join('')}
+        ${incRows.length>8 ? `<tr><td class="note-txt">…${incRows.length-8} smaller sources</td><td class="amt" style="text-align:right;color:var(--ok)">+${fmt(incRows.slice(8).reduce((s,k)=>s+incBySrc[k].total,0))}</td><td></td></tr>` : ''}
+        <tr><td style="font-weight:700">Total in</td><td class="amt" style="text-align:right;font-weight:700;color:var(--ok)">+${fmt(incTotal)}</td><td></td></tr></tbody>
+      </table>` : ''}
+    ${bankRows.length>1 ? `<h3 style="font-size:14px;margin:16px 0 8px">&#127974; Money out by bank / method</h3>
+      <table style="font-size:13px;margin-bottom:4px">
+        <thead><tr><th>Paid from</th><th style="text-align:right">Amount</th><th style="text-align:right">Share</th><th style="text-align:right">Entries</th></tr></thead>
+        <tbody>${bankRows.map(k=>`<tr>
+          <td>${esc(k)}</td>
+          <td class="amt" style="text-align:right">${fmt(byBank[k].total)}</td>
+          <td style="text-align:right">${(byBank[k].total/total*100).toFixed(0)}%</td>
+          <td style="text-align:right">${byBank[k].n}</td>
+        </tr>`).join('')}</tbody>
+      </table>` : ''}
     ${themeRows.length ? `<h3 style="font-size:14px;margin:16px 0 8px">&#129525; Spending themes <span class="note-txt" style="font-weight:400">— words that repeat across your notes this month</span></h3>
       ${themeRows.map(w=>`<div class="cat-row"><span class="nm" style="text-transform:capitalize">${esc(w)}<span class="note-txt" style="margin-left:6px;text-transform:none">${themes[w].n} entries</span></span><span class="amt" style="font-size:13px">${fmt(themes[w].total)}</span></div>`).join('')}` : ''}
     ${movers.length ? `<h3 style="font-size:14px;margin:16px 0 8px">Price watch</h3>
@@ -3262,7 +3298,7 @@ async function exportExcel(list, incList, tag){
 }
 
 // bumped on every update so a cached old copy is easy to spot
-const APP_VERSION = 'v28';
+const APP_VERSION = 'v29';
 document.addEventListener('DOMContentLoaded', ()=>{
   const c = document.getElementById('appVersionChip');
   if(c) c.textContent = APP_VERSION;
