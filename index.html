@@ -19,6 +19,8 @@
   .brand{display:flex;align-items:center;gap:12px}
   .brand .mark{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#2563eb,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff}
   .brand h1{font-size:20px;font-weight:700}
+  #editBackdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:60}
+  #expFormCard.floating{position:fixed;top:4vh;left:50%;transform:translateX(-50%);width:min(680px,94vw);max-height:92vh;overflow-y:auto;z-index:61;box-shadow:0 24px 64px rgba(0,0,0,.35);margin-bottom:0}
   .brand p{font-size:12px;color:var(--muted)}
   .hdr-actions{display:flex;gap:8px;flex-wrap:wrap}
 
@@ -131,8 +133,8 @@
 
   <div class="grid">
     <div>
-      <div class="card" style="margin-bottom:16px">
-        <h2>Add Expense</h2>
+      <div class="card" style="margin-bottom:16px" id="expFormCard">
+        <h2 id="expFormTitle">Add Expense</h2>
         <form id="expForm" class="form-grid" onsubmit="return saveExpense(event)">
           <input type="hidden" id="fId">
           <div>
@@ -539,6 +541,8 @@
     </div>
   </div>
 </div>
+
+<div id="editBackdrop" onclick="resetForm()" title="Click to cancel editing"></div>
 
 <!-- Export scope modal -->
 <div class="modal-bg" id="exportModal">
@@ -990,14 +994,26 @@ function editExpense(id){
   formItems = (x.items||[]).map(it=>({...it})); renderItemRows();
   $('submitBtn').innerHTML = '&#128190; Save Changes';
   $('cancelEdit').style.display = 'inline-flex';
-  window.scrollTo({top:0,behavior:'smooth'});
+  // float the form over the list instead of jumping to the top of the page;
+  // the scroll position is restored when the edit is saved or cancelled
+  editReturnY = window.scrollY;
+  $('expFormTitle').textContent = 'Edit Expense';
+  $('expFormCard').classList.add('floating');
+  $('editBackdrop').style.display = 'block';
 }
 function deleteExpense(id){
   if(!confirm('Delete this expense?')) return;
   state.expenses = state.expenses.filter(e=>e.id!==id);
   persist(); render(); toast('Expense deleted');
 }
+let editReturnY = 0;
 function resetForm(){
+  if($('expFormCard').classList.contains('floating')){
+    $('expFormCard').classList.remove('floating');
+    $('editBackdrop').style.display = 'none';
+    $('expFormTitle').textContent = 'Add Expense';
+    window.scrollTo({top: editReturnY || 0});
+  }
   $('expForm').reset();
   $('fId').value=''; $('fDate').value = todayStr();
   pendingFile = null; updateFileInfo();
@@ -3298,7 +3314,7 @@ async function exportExcel(list, incList, tag){
 }
 
 // bumped on every update so a cached old copy is easy to spot
-const APP_VERSION = 'v29';
+const APP_VERSION = 'v30';
 document.addEventListener('DOMContentLoaded', ()=>{
   const c = document.getElementById('appVersionChip');
   if(c) c.textContent = APP_VERSION;
