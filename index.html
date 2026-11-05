@@ -124,6 +124,7 @@
       <button class="btn btn-ghost" onclick="openWallet()">&#128176; Wallet</button>
       <button class="btn btn-ghost" onclick="openInsights()">&#128202; Report &amp; Analysis</button>
       <button class="btn btn-ghost" onclick="openSettings()">&#9881;&#65039; Settings</button>
+      <button class="btn btn-ghost" onclick="openDupFinder()">&#129529; Find Duplicates</button>
       <button class="btn btn-ghost" onclick="openExportScope('csv')">&#11015;&#65039; Export CSV</button>
       <button class="btn btn-ghost" onclick="openExportScope('xlsx')">&#128202; Export Excel</button>
     </div>
@@ -553,6 +554,19 @@
       <button class="btn btn-primary" id="exportMonthBtn" onclick="runExport('month')"></button>
       <button class="btn btn-primary" onclick="runExport('all')">Everything (all time)</button>
       <button class="btn btn-ghost" onclick="closeModal('exportModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Duplicate finder modal -->
+<div class="modal-bg" id="dupModal">
+  <div class="modal" style="max-width:660px">
+    <h3>&#129529; Find Duplicates</h3>
+    <p style="font-size:13px;color:var(--muted)" id="dupIntro"></p>
+    <div id="dupList" style="max-height:55vh;overflow:auto"></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal('dupModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="runDupRemove()">Remove ticked entries</button>
     </div>
   </div>
 </div>
@@ -2564,7 +2578,7 @@ function applyStatementImport(mapped, method, cat){
     const a = String(p.acct||'').replace(/\D/g,'');
     if(a.length>=8) payeeByAcct[a] = p;
   });
-  let matchedPayees = 0, linkedExisting = 0, adhocPayees = 0, autoCat = 0;
+  let matchedPayees = 0, linkedExisting = 0, adhocPayees = 0, autoCat = 0, payeeDup = 0, payeeFixed = 0;
 
   // money-in dedupe pool: an income with the same date + amount absorbs one row
   const seenInc = {};
@@ -2648,13 +2662,34 @@ function applyStatementImport(mapped, method, cat){
       }
       return;
     }
+    // the bank statement is the authority on monthly payee figures: when this
+    // row pays a payee's registered account and that payee's payment for this
+    // month was recorded by hand (marked Paid, possibly with an edited figure
+    // or a different date), the statement's amount and date replace the
+    // hand-entered ones instead of adding a second entry
+    if(pAcct){
+      const mk2 = date.slice(0,7);
+      const looksMonthly = !!pMatch || /monthly|salary|allowance/i.test(String(m.note||''));
+      if(looksMonthly){
+        const linked = state.expenses.find(e=>e.payeeId===pAcct.id && String(e.date).slice(0,7)===mk2 && e.src!=='stmt');
+        if(linked){
+          const same = Math.abs(linked.amount-amt)<0.005;
+          linked.amount = amt; linked.date = date; linked.src = 'stmt';
+          if(linked.method==='Cash' || linked.method==='Bank transfer') linked.method = rowMethod;
+          if(m.note && String(linked.note||'').indexOf(String(m.note).slice(0,24))===-1) linked.note = (linked.note ? linked.note+' · ' : '')+m.note;
+          if(same) payeeDup++; else payeeFixed++;
+          return;
+        }
+      }
+    }
     const gCat = pMatch ? null : guessCategory(m.note);
     if(gCat && gCat !== cat) autoCat++;
     const exp = {
       id: 'e'+Date.now()+Math.random().toString(36).slice(2,6),
       amount: amt, date, method: rowMethod,
       cat: pMatch ? (state.categories.some(c=>c.id===pMatch.cat) ? pMatch.cat : 'payments') : (gCat || cat),
-      note: pMatch ? (payNoteFor(date, pMatch) + (m.note ? ' · '+m.note : '')) : (m.note||'')
+      note: pMatch ? (payNoteFor(date, pMatch) + (m.note ? ' · '+m.note : '')) : (m.note||''),
+      src: 'stmt'
     };
     if(pMatch){ exp.payeeId = pMatch.id; matchedPayees++; }
     state.expenses.push(exp);
@@ -2690,6 +2725,8 @@ function applyStatementImport(mapped, method, cat){
   if(adhocPayees) bits.push(adhocPayees+' payment'+(adhocPayees===1?'':'s')+' to people on your payee list kept as normal expenses (amount differs from their monthly) — use Pay on the payee to link one if needed');
   if(autoCat) bits.push(autoCat+' auto-categorised from the narration — spot-check with the category filter');
   if(skippedDup) bits.push(skippedDup+' already in your tracker — skipped');
+  if(payeeFixed) bits.push(payeeFixed+' payee payment'+(payeeFixed===1?'':'s')+' corrected to the statement’s amount and date (the statement is the authority)');
+  if(payeeDup) bits.push(payeeDup+' payee payment'+(payeeDup===1?'':'s')+' already recorded — no duplicate added, date aligned to the statement');
   if(ownTransfers) bits.push(ownTransfers+' transfer'+(ownTransfers===1?'':'s')+' between your own accounts — skipped');
   if(skippedFailed) bits.push(skippedFailed+' failed/reversed — skipped');
   if(incAdded) bits.push(incAdded+' money-in recorded in the &#128181; Money In section ('+fmt(incSum)+' total)');
@@ -3192,6 +3229,72 @@ document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click', e=
 // ---------- CSV export ----------
 // scope chooser shared by both export buttons
 let exportFmt = null;
+function openDupFinder(){
+  // pairs of entries that look like the same payment recorded twice
+  const sugg = [];
+  const used = new Set();
+  const stmtBacked = e => e.src==='stmt' || /·/.test(String(e.note||''));
+  const byAmt = {};
+  state.expenses.forEach(e=>{ const k = Number(e.amount).toFixed(2); (byAmt[k] = byAmt[k]||[]).push(e); });
+  Object.keys(byAmt).forEach(k=>{
+    const list = byAmt[k];
+    if(list.length < 2) return;
+    list.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+    for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++){
+      const a = list[i], b = list[j];
+      if(used.has(a.id) || used.has(b.id)) continue;
+      if(String(a.date).slice(0,7) !== String(b.date).slice(0,7)) continue;
+      const days = Math.abs(new Date(a.date+'T00:00:00') - new Date(b.date+'T00:00:00'))/86400000;
+      let why = '', pre = false;
+      if(a.payeeId && a.payeeId===b.payeeId){
+        const p = state.payees.find(x=>x.id===a.payeeId);
+        why = (p?p.name:'the same payee')+"'s payment is recorded twice this month"; pre = true;
+      }else if((a.payeeId || b.payeeId) && days <= 7){
+        const p = state.payees.find(x=>x.id===(a.payeeId||b.payeeId));
+        const other = a.payeeId ? b : a;
+        const toks = p ? String(p.name).toLowerCase().split(/\s+/).filter(t=>t.length>3) : [];
+        if(p && toks.some(t=>String(other.note||'').toLowerCase().includes(t))){
+          why = 'one is '+p.name+"'s payee payment, the other names them in the narration"; pre = true;
+        }
+      }
+      if(!why && days <= 4 && Number(a.amount) >= 1000 && a.cat!=='bankcharges' && b.cat!=='bankcharges'){
+        why = 'same amount within a few days — tick only if it is the same payment recorded twice';
+      }
+      if(!why) continue;
+      // keep the statement-backed copy, suggest removing the hand-entered one
+      let keep = a, drop = b;
+      if(stmtBacked(b) && !stmtBacked(a)){ keep = b; drop = a; }
+      sugg.push({keep, drop, why, pre});
+      used.add(a.id); used.add(b.id);
+    }
+  });
+  const dShort = s => new Date(s+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
+  const line = e => dShort(e.date)+' — '+(String(e.note||'').slice(0,70) || '(no note)');
+  $('dupIntro').textContent = sugg.length
+    ? 'These pairs look like the same payment recorded twice (for example marked Paid on a payee AND imported from a bank statement). The statement copy is kept; tick a pair to remove the extra copy. Nothing is removed until you press the button.'
+    : 'No duplicates found — every entry looks unique. ✓';
+  $('dupList').innerHTML = sugg.slice(0,80).map(s=>`
+    <div style="border:1px solid var(--border,#e5e5e5);border-radius:10px;padding:10px 12px;margin-bottom:8px">
+      <div style="font-weight:700">${fmt(s.keep.amount)} <span style="font-weight:400;font-size:12px;color:var(--muted)">— ${esc(s.why)}</span></div>
+      <div style="font-size:13px;margin-top:6px">&#10003; Keep: ${esc(line(s.keep))}</div>
+      <label style="font-size:13px;display:flex;gap:8px;align-items:flex-start;margin-top:4px;cursor:pointer">
+        <input type="checkbox" data-id="${s.drop.id}" ${s.pre?'checked':''} style="margin-top:2px">
+        <span>Remove: ${esc(line(s.drop))}</span>
+      </label>
+    </div>`).join('');
+  $('dupModal').classList.add('open');
+}
+function runDupRemove(){
+  const boxes = document.querySelectorAll('#dupList input[type=checkbox]:checked');
+  let n = 0;
+  boxes.forEach(b=>{
+    const i = state.expenses.findIndex(e=>e.id===b.dataset.id);
+    if(i > -1){ state.expenses.splice(i,1); n++; }
+  });
+  if(n){ persist(); render(); }
+  closeModal('dupModal');
+  toast(n ? n+' duplicate'+(n===1?'':'s')+' removed — totals are corrected' : 'Nothing was removed');
+}
 function openExportScope(fmt){
   if(!state.expenses.length && !(state.incomes||[]).length){ toast('Nothing to export yet'); return; }
   exportFmt = fmt;
@@ -3314,7 +3417,7 @@ async function exportExcel(list, incList, tag){
 }
 
 // bumped on every update so a cached old copy is easy to spot
-const APP_VERSION = 'v30';
+const APP_VERSION = 'v31';
 document.addEventListener('DOMContentLoaded', ()=>{
   const c = document.getElementById('appVersionChip');
   if(c) c.textContent = APP_VERSION;
