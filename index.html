@@ -3244,6 +3244,8 @@ function openDupFinder(){
       const a = list[i], b = list[j];
       if(used.has(a.id) || used.has(b.id)) continue;
       if(String(a.date).slice(0,7) !== String(b.date).slice(0,7)) continue;
+      // two statement-imported rows are two real bank payments, never a duplicate pair
+      if(a.src==='stmt' && b.src==='stmt') continue;
       const days = Math.abs(new Date(a.date+'T00:00:00') - new Date(b.date+'T00:00:00'))/86400000;
       let why = '', pre = false;
       if(a.payeeId && a.payeeId===b.payeeId){
@@ -3257,10 +3259,7 @@ function openDupFinder(){
           why = 'one is '+p.name+"'s payee payment, the other names them in the narration"; pre = true;
         }
       }
-      if(!why && days <= 4 && Number(a.amount) >= 1000 && a.cat!=='bankcharges' && b.cat!=='bankcharges'){
-        why = 'same amount within a few days — tick only if it is the same payment recorded twice';
-      }
-      if(!why) continue;
+      if(!why) continue; // same amount to DIFFERENT people is not a duplicate — never flag it
       // keep the statement-backed copy, suggest removing the hand-entered one
       let keep = a, drop = b;
       if(stmtBacked(b) && !stmtBacked(a)){ keep = b; drop = a; }
@@ -3271,7 +3270,7 @@ function openDupFinder(){
   const dShort = s => new Date(s+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
   const line = e => dShort(e.date)+' — '+(String(e.note||'').slice(0,70) || '(no note)');
   $('dupIntro').textContent = sugg.length
-    ? 'These pairs look like the same payment recorded twice (for example marked Paid on a payee AND imported from a bank statement). The statement copy is kept; tick a pair to remove the extra copy. Nothing is removed until you press the button.'
+    ? 'These pairs are the same amount to the SAME person in the same month — usually marked Paid on a payee AND imported from a bank statement. The statement copy is kept; tick a pair to remove the extra copy. Nothing is removed until you press the button.'
     : 'No duplicates found — every entry looks unique. ✓';
   $('dupList').innerHTML = sugg.slice(0,80).map(s=>`
     <div style="border:1px solid var(--border,#e5e5e5);border-radius:10px;padding:10px 12px;margin-bottom:8px">
@@ -3417,7 +3416,7 @@ async function exportExcel(list, incList, tag){
 }
 
 // bumped on every update so a cached old copy is easy to spot
-const APP_VERSION = 'v31';
+const APP_VERSION = 'v32';
 document.addEventListener('DOMContentLoaded', ()=>{
   const c = document.getElementById('appVersionChip');
   if(c) c.textContent = APP_VERSION;
